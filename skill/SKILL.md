@@ -27,11 +27,24 @@ Basta provides two GraphQL APIs with distinct purposes:
 - Real-time updates via WebSocket subscriptions
 - Authentication: Optional JWT bidder tokens
 
-## Core Workflow
+## Core Workflows
 
-### 1. Creating an Auction
+Basta provides **two flexible workflows** for managing items and sales:
 
-Use Management API to create auctions:
+**Workflow A: Direct Item Creation**
+1. Create standalone items with `createItem`
+2. Create sale
+3. Add existing items to sale with `addItemToSale`
+4. Publish sale
+
+**Workflow B: Integrated Creation**
+1. Create sale
+2. Create items directly in sale with `createItemForSale`
+3. Publish sale
+
+### 1. Creating a Sale
+
+Use Management API to create a sale:
 
 ```graphql
 mutation CreateSale {
@@ -53,7 +66,52 @@ mutation CreateSale {
 }
 ```
 
-### 2. Adding Items
+### 2a. Creating Standalone Items (Workflow A)
+
+Create reusable items independent of any sale:
+
+```graphql
+mutation CreateItem {
+  createItem(accountId: "ACCOUNT_ID", input: {
+    title: "Item Title"
+    description: "Item description"
+    startingBid: 1000  # cents
+    reserve: 50000     # cents
+  }) {
+    id
+    title
+    status
+  }
+}
+```
+
+### 2b. Adding Existing Items to Sale (Workflow A)
+
+Add previously created items to a sale:
+
+```graphql
+mutation AddItemToSale {
+  addItemToSale(accountId: "ACCOUNT_ID", input: {
+    saleId: "SALE_ID"
+    itemId: "ITEM_ID"  # From createItem
+    allowedBidTypes: [MAX]
+    openDate: "2024-02-01T15:00:00Z"
+    closingDate: "2024-02-01T16:00:00Z"
+  }) {
+    id
+    status
+    dates {
+      openDate
+      closingStart
+      closingEnd
+    }
+  }
+}
+```
+
+### 2c. Creating Items Directly in Sale (Workflow B)
+
+Create and add items to a sale in one operation:
 
 ```graphql
 mutation CreateItemForSale {
@@ -234,6 +292,21 @@ Basta can notify your application when events occur via webhooks. Configure webh
 
 ## Implementation Guidelines
 
+**Workflow Selection:**
+- **Use Workflow A (createItem + addItemToSale)** when:
+  - Items need to be reused across multiple sales
+  - Building an item catalog/inventory system
+  - Items are created before sales are scheduled
+- **Use Workflow B (createItemForSale)** when:
+  - Items are specific to a single sale
+  - Creating items and sales in one flow
+  - Simpler integration requirements
+
+**Item Reusability:**
+- Items created with `createItem` can be added to multiple sales
+- Use `removeItemFromSale` to remove items without deleting them
+- Update items with `updateItem` to modify across all sales
+
 **Authentication:**
 - Store API credentials securely
 - Generate bidder tokens server-side only
@@ -253,6 +326,7 @@ Basta can notify your application when events occur via webhooks. Configure webh
 - Test in GraphQL Playground: https://management.api.basta.app
 - Verify bidder token generation and expiration
 - Test WebSocket connections before production
+- Test both workflows to understand which fits your use case
 
 ## Key Concepts
 
@@ -271,6 +345,25 @@ Basta can notify your application when events occur via webhooks. Configure webh
 **Starting Bid:** Initial bid amount
 
 **Bidder Token:** JWT granting permission to bid on behalf of a user
+
+## Common Pitfalls
+
+**Using the wrong mutation combination:**
+- ❌ Wrong: Call `addItemToSale` with an item created via `createItemForSale`
+- ✅ Correct: Use `addItemToSale` only with items created via `createItem`
+
+**Missing sale context for item additions:**
+- ❌ Wrong: Call `createItemForSale` or `addItemToSale` without a valid `saleId`
+- ✅ Correct: Create sale first, then add/create items with the returned `saleId`
+
+**Not understanding item lifecycle:**
+- Items created with `createItem` are reusable across sales
+- Items created with `createItemForSale` are tied to that specific sale
+- Use `removeItemFromSale` to detach items without deletion
+
+**Forgetting to publish:**
+- Sales remain in `UNPUBLISHED` status until `publishSale` is called
+- Items won't accept bids until the sale is published
 
 ## References
 

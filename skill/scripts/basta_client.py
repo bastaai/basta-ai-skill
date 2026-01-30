@@ -105,11 +105,101 @@ class BastaClient:
         result = self._management_request(query, variables)
         return result["data"]["createSale"]
     
-    def add_item(self, sale_id: str, title: str, description: str,
-                 starting_bid: int, reserve: Optional[int] = None,
-                 open_date: str = None, closing_date: str = None) -> Dict[str, Any]:
+    def create_item(self, title: str, description: str,
+                    starting_bid: int, reserve: Optional[int] = None) -> Dict[str, Any]:
         """
-        Add an item to a sale.
+        Create a standalone item that can be added to sales later.
+        
+        Args:
+            title: Item title
+            description: Item description
+            starting_bid: Starting bid in cents
+            reserve: Reserve price in cents (optional)
+        
+        Returns:
+            Item data including id, title, and status
+        """
+        query = """
+        mutation CreateItem($accountId: String!, $input: CreateItemInput!) {
+          createItem(accountId: $accountId, input: $input) {
+            id
+            title
+            status
+          }
+        }
+        """
+        
+        item_input = {
+            "title": title,
+            "description": description,
+            "startingBid": starting_bid
+        }
+        
+        if reserve:
+            item_input["reserve"] = reserve
+        
+        variables = {
+            "accountId": self.account_id,
+            "input": item_input
+        }
+        
+        result = self._management_request(query, variables)
+        return result["data"]["createItem"]
+    
+    def add_item_to_sale(self, sale_id: str, item_id: str,
+                         open_date: str, closing_date: str,
+                         allowed_bid_types: Optional[list] = None) -> Dict[str, Any]:
+        """
+        Add an existing item to a sale.
+        
+        Args:
+            sale_id: Parent sale ID
+            item_id: Existing item ID (from create_item)
+            open_date: ISO 8601 timestamp for when bidding opens
+            closing_date: ISO 8601 timestamp for when closing begins
+            allowed_bid_types: List of allowed bid types (default: ["MAX"])
+        
+        Returns:
+            Sale item data including id, status, and dates
+        """
+        query = """
+        mutation AddItemToSale($accountId: String!, $input: AddItemToSaleInput!) {
+          addItemToSale(accountId: $accountId, input: $input) {
+            id
+            status
+            dates {
+              openDate
+              closingStart
+              closingEnd
+            }
+          }
+        }
+        """
+        
+        if allowed_bid_types is None:
+            allowed_bid_types = ["MAX"]
+        
+        item_input = {
+            "saleId": sale_id,
+            "itemId": item_id,
+            "allowedBidTypes": allowed_bid_types,
+            "openDate": open_date,
+            "closingDate": closing_date
+        }
+        
+        variables = {
+            "accountId": self.account_id,
+            "input": item_input
+        }
+        
+        result = self._management_request(query, variables)
+        return result["data"]["addItemToSale"]
+    
+    def create_item_for_sale(self, sale_id: str, title: str, description: str,
+                             starting_bid: int, reserve: Optional[int] = None,
+                             open_date: str = None, closing_date: str = None) -> Dict[str, Any]:
+        """
+        Create an item and add it to a sale in one operation.
         
         Args:
             sale_id: Parent sale ID
@@ -124,7 +214,7 @@ class BastaClient:
             Item data including id, status, and dates
         """
         query = """
-        mutation CreateItem($accountId: String!, $input: CreateItemInput!) {
+        mutation CreateItemForSale($accountId: String!, $input: SaleItemInput!) {
           createItemForSale(accountId: $accountId, input: $input) {
             id
             title
@@ -160,6 +250,36 @@ class BastaClient:
         
         result = self._management_request(query, variables)
         return result["data"]["createItemForSale"]
+    
+    def add_item(self, sale_id: str, title: str, description: str,
+                 starting_bid: int, reserve: Optional[int] = None,
+                 open_date: str = None, closing_date: str = None) -> Dict[str, Any]:
+        """
+        DEPRECATED: Use create_item_for_sale instead.
+        
+        Add an item to a sale (creates item and adds to sale in one operation).
+        
+        Args:
+            sale_id: Parent sale ID
+            title: Item title
+            description: Item description
+            starting_bid: Starting bid in cents
+            reserve: Reserve price in cents (optional)
+            open_date: ISO 8601 timestamp for when bidding opens
+            closing_date: ISO 8601 timestamp for when closing begins
+        
+        Returns:
+            Item data including id, status, and dates
+        """
+        return self.create_item_for_sale(
+            sale_id=sale_id,
+            title=title,
+            description=description,
+            starting_bid=starting_bid,
+            reserve=reserve,
+            open_date=open_date,
+            closing_date=closing_date
+        )
     
     def publish_sale(self, sale_id: str) -> Dict[str, Any]:
         """

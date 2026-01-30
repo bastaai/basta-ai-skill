@@ -51,17 +51,42 @@ mutation CreateSale {
 }
 ```
 
-### createItemForSale
+### createItem
 
-Add an item to an existing sale.
+Create a standalone item that can be added to sales later.
 
 **Input:**
-- `saleId` (ID!) - Parent sale ID
 - `title` (String!) - Item title
 - `description` (String) - Item description
 - `startingBid` (Int!) - Starting bid in cents
 - `reserve` (Int) - Reserve price in cents
-- `allowedBidTypes` ([BidType!]) - Allowed bid types (e.g., MAX, LIVE)
+
+**Returns:** Item object
+
+**Example:**
+```graphql
+mutation CreateStandaloneItem {
+  createItem(accountId: "ACCOUNT_ID", input: {
+    title: "Vintage Guitar"
+    description: "1959 Les Paul Standard"
+    startingBid: 500000  # $5,000
+    reserve: 2000000     # $20,000
+  }) {
+    id
+    title
+    status
+  }
+}
+```
+
+### addItemToSale
+
+Add an existing item to a sale.
+
+**Input:**
+- `saleId` (ID!) - Parent sale ID
+- `itemId` (ID!) - Existing item ID (from `createItem`)
+- `allowedBidTypes` ([BidType!]) - Allowed bid types (e.g., MAX, NORMAL)
 - `openDate` (DateTime!) - When bidding opens
 - `closingDate` (DateTime!) - When closing period begins
 
@@ -69,7 +94,44 @@ Add an item to an existing sale.
 
 **Example:**
 ```graphql
-mutation AddItem {
+mutation AddExistingItem {
+  addItemToSale(accountId: "ACCOUNT_ID", input: {
+    saleId: "sale_abc123"
+    itemId: "item_xyz789"
+    allowedBidTypes: [MAX]
+    openDate: "2024-06-01T10:00:00Z"
+    closingDate: "2024-06-07T20:00:00Z"
+  }) {
+    id
+    status
+    dates {
+      openDate
+      closingStart
+      closingEnd
+    }
+  }
+}
+```
+
+### createItemForSale
+
+Create an item and add it to a sale in one operation.
+
+**Input:**
+- `saleId` (ID!) - Parent sale ID
+- `title` (String!) - Item title
+- `description` (String) - Item description
+- `startingBid` (Int!) - Starting bid in cents
+- `reserve` (Int) - Reserve price in cents
+- `allowedBidTypes` ([BidType!]) - Allowed bid types (e.g., MAX, NORMAL)
+- `openDate` (DateTime!) - When bidding opens
+- `closingDate` (DateTime!) - When closing period begins
+
+**Returns:** SaleItem object
+
+**Example:**
+```graphql
+mutation CreateAndAddItem {
   createItemForSale(accountId: "ACCOUNT_ID", input: {
     saleId: "sale_abc123"
     title: "Vintage Guitar"
@@ -88,6 +150,28 @@ mutation AddItem {
       closingStart
       closingEnd
     }
+  }
+}
+```
+
+### removeItemFromSale
+
+Remove an item from a sale without deleting it.
+
+**Input:**
+- `saleId` (ID!) - Sale ID
+- `itemId` (ID!) - Item ID to remove
+
+**Returns:** Success status
+
+**Example:**
+```graphql
+mutation RemoveItem {
+  removeItemFromSale(accountId: "ACCOUNT_ID", input: {
+    saleId: "sale_abc123"
+    itemId: "item_xyz789"
+  }) {
+    success
   }
 }
 ```

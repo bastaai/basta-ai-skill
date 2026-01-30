@@ -63,8 +63,19 @@ Step-by-step workflows for:
 from basta_client import BastaClient
 
 client = BastaClient(account_id="...", api_key="...")
+
+# Workflow A: Reusable items
+item = client.create_item(title="Item 1", description="...", starting_bid=1000)
 sale = client.create_sale(title="My Auction")
-item = client.add_item(sale_id=sale["id"], title="Item 1", starting_bid=1000)
+client.add_item_to_sale(sale_id=sale["id"], item_id=item["id"], 
+                        open_date="...", closing_date="...")
+
+# Workflow B: Direct creation
+sale = client.create_sale(title="My Auction")
+item = client.create_item_for_sale(sale_id=sale["id"], title="Item 1", 
+                                   starting_bid=1000, open_date="...", closing_date="...")
+
+# Publish either workflow
 client.publish_sale(sale["id"])
 ```
 
@@ -98,31 +109,64 @@ await client.subscribe_to_item(sale_id="...", item_id="...", callback=handle_upd
 
 ### 3. Create Your First Auction
 
+Basta offers **two flexible workflows**:
+
+**Workflow A: Reusable Items**
 ```python
 from basta_client import BastaClient
 
-# Initialize
 client = BastaClient(account_id="your_id", api_key="your_key")
 
-# Create auction
+# Create standalone items (reusable across sales)
+item1 = client.create_item(
+    title="Vintage Guitar",
+    description="1959 Les Paul",
+    starting_bid=50000,  # $500
+    reserve=200000       # $2000
+)
+
+# Create sale
 sale = client.create_sale(
     title="Estate Auction",
     description="Fine art and antiques"
 )
 
-# Add item
-item = client.add_item(
+# Add existing items to sale
+client.add_item_to_sale(
     sale_id=sale["id"],
-    title="Vintage Guitar",
-    starting_bid=50000,  # $500
-    reserve=200000       # $2000
+    item_id=item1["id"],
+    open_date="2024-06-01T10:00:00Z",
+    closing_date="2024-06-07T20:00:00Z"
 )
 
 # Publish
 client.publish_sale(sale["id"])
+```
 
-# Generate bidder token
-token = client.create_bidder_token("user_123", ttl_minutes=60)
+**Workflow B: Direct Creation**
+```python
+from basta_client import BastaClient
+
+client = BastaClient(account_id="your_id", api_key="your_key")
+
+# Create sale
+sale = client.create_sale(
+    title="Estate Auction",
+    description="Fine art and antiques"
+)
+
+# Create items directly in sale
+item = client.create_item_for_sale(
+    sale_id=sale["id"],
+    title="Vintage Guitar",
+    starting_bid=50000,  # $500
+    reserve=200000,      # $2000
+    open_date="2024-06-01T10:00:00Z",
+    closing_date="2024-06-07T20:00:00Z"
+)
+
+# Publish
+client.publish_sale(sale["id"])
 ```
 
 ## API Overview
