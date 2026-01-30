@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📚 Comprehensive reference documentation
 - 🐍 Ready-to-use Python scripts
 
-## [Unreleased]
+## [1.1.0] - 2026-01-30
 
 ### Added
 - Documentation for `createItem` mutation - create standalone, reusable items
@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 - `add_item()` method in Python client (use `create_item_for_sale()` for clarity)
+
+## [Unreleased]
 
 ### Planned
 - Ruby code examples
