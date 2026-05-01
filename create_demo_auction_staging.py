@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""
+Demo Auction Creator - STAGING Environment (basta.wtf)
+
+This script creates a demo auction on the STAGING environment using basta.wtf domain.
+Pass credentials as command-line arguments.
+
+Usage:
+    python create_demo_auction_staging.py <account_id> <api_key>
+"""
+
+import sys
+from datetime import datetime, timedelta
+
+# Add the scripts directory to path
+sys.path.append('skill/scripts')
+
+from basta_client import BastaClient
+
+
+def create_demo_auction(account_id, api_key):
+    """Create a demo auction on staging environment."""
+
+    print("=" * 70)
+    print("🎯 Basta Demo Auction Creator - STAGING (basta.wtf)")
+    print("=" * 70)
+    print()
+    print(f"Environment: STAGING (basta.wtf)")
+    print(f"Account ID: {account_id}")
+    print(f"API Key: {'*' * (len(api_key) - 4)}{api_key[-4:]}")
+
+    print("\n" + "-" * 70)
+    print("🚀 Creating demo auction on staging...")
+    print("-" * 70)
+
+    try:
+        # Initialize client with staging domain and graphql path
+        client = BastaClient(account_id, api_key, base_domain="basta.wtf", graphql_path="graphql")
+        print("\n✅ Connected to Basta STAGING API (basta.wtf)")
+        print(f"   Management API: {client.MANAGEMENT_URL}")
+        print(f"   Client API: {client.CLIENT_URL}")
+
+        # Step 1: Create sale
+        print("\n📦 Creating sale...")
+        sale = client.create_sale(
+            title="Demo Auction - Collectibles & Antiques",
+            description="A demonstration auction featuring vintage collectibles and antiques",
+            bid_increment_rules=[
+                {"lowRange": 0, "highRange": 10000, "step": 100},      # $0 - $100: $1 increments
+                {"lowRange": 10000, "highRange": 100000, "step": 500}, # $100 - $1000: $5 increments
+                {"lowRange": 100000, "highRange": 1000000, "step": 1000} # $1000+: $10 increments
+            ],
+            closing_time_countdown=120000  # 2 minutes countdown when bid placed near closing
+        )
+
+        sale_id = sale['id']
+        print(f"✅ Created sale: {sale['title']}")
+        print(f"   Sale ID: {sale_id}")
+
+        # Step 2: Create items directly in sale
+        print("\n📝 Adding items to sale...")
+
+        # Calculate dates: open tomorrow, close in 7 days
+        now = datetime.utcnow()
+        open_date = (now + timedelta(days=1)).isoformat() + "Z"
+        closing_date = (now + timedelta(days=7)).isoformat() + "Z"
+
+        items_data = [
+            {
+                "title": "Vintage Rolex Submariner Watch",
+                "description": "Classic 1970s Rolex Submariner in excellent condition. Fully serviced with original box and papers.",
+                "starting_bid": 500000,  # $5,000
+                "reserve": 800000        # $8,000
+            },
+            {
+                "title": "First Edition Harry Potter Book",
+                "description": "Rare first edition of Harry Potter and the Philosopher's Stone. Signed by J.K. Rowling.",
+                "starting_bid": 100000,  # $1,000
+                "reserve": 300000        # $3,000
+            },
+            {
+                "title": "Mid-Century Modern Eames Lounge Chair",
+                "description": "Authentic Herman Miller Eames Lounge Chair and Ottoman. Original leather, excellent condition.",
+                "starting_bid": 300000,  # $3,000
+                "reserve": 500000        # $5,000
+            },
+            {
+                "title": "1952 Mickey Mantle Baseball Card",
+                "description": "PSA-graded Mickey Mantle rookie card. Investment grade collectible.",
+                "starting_bid": 200000,  # $2,000
+                "reserve": 400000        # $4,000
+            },
+            {
+                "title": "Vintage Gibson Les Paul Guitar",
+                "description": "1959 Gibson Les Paul Standard in Sunburst. One of the most sought-after guitars.",
+                "starting_bid": 1000000, # $10,000
+                "reserve": 2000000       # $20,000
+            }
+        ]
+
+        created_items = []
+        for item_data in items_data:
+            item = client.create_item_for_sale(
+                sale_id=sale_id,
+                title=item_data["title"],
+                description=item_data["description"],
+                starting_bid=item_data["starting_bid"],
+                reserve=item_data["reserve"],
+                open_date=open_date,
+                closing_date=closing_date
+            )
+            created_items.append(item)
+            print(f"   ✅ {item['title']}")
+            print(f"      Starting bid: ${item_data['starting_bid']/100:,.2f}")
+
+        # Step 3: Publish the sale
+        print(f"\n🚀 Publishing sale...")
+        published = client.publish_sale(sale_id)
+        print(f"✅ Sale published successfully!")
+        print(f"   Status: {published['status']}")
+
+        # Step 4: Generate demo bidder tokens
+        print(f"\n🎟️  Generating demo bidder tokens...")
+
+        bidders = ["alice", "bob", "charlie"]
+        tokens = {}
+
+        for bidder_id in bidders:
+            try:
+                token_data = client.create_bidder_token(bidder_id, ttl_minutes=180)
+                tokens[bidder_id] = token_data['token']
+                print(f"   ✅ Token for '{bidder_id}': {token_data['token'][:30]}...")
+                print(f"      Expires: {token_data['expiration']}")
+            except Exception as e:
+                print(f"   ⚠️  Failed to create token for '{bidder_id}': {e}")
+                # Continue anyway - tokens might have different requirements in staging
+
+        # Display final summary
+        print("\n" + "=" * 70)
+        print("🎉 Demo Auction Created Successfully on STAGING!")
+        print("=" * 70)
+
+        print(f"\n📊 Auction Summary:")
+        print(f"   Environment: STAGING (basta.wtf)")
+        print(f"   Sale ID: {sale_id}")
+        print(f"   Title: {sale['title']}")
+        print(f"   Items: {len(created_items)}")
+        print(f"   Status: {published['status']}")
+        print(f"   Opens: {open_date}")
+        print(f"   Closes: {closing_date}")
+
+        print(f"\n📋 Items in Auction:")
+        for i, item in enumerate(created_items, 1):
+            print(f"   {i}. {item['title']}")
+            print(f"      Item ID: {item['id']}")
+            print(f"      Status: {item['status']}")
+
+        print(f"\n🔗 STAGING API Endpoints:")
+        print(f"   Management API: https://management.api.basta.wtf/graphql")
+        print(f"   Client API: https://client.api.basta.wtf/graphql")
+        print(f"   GraphQL Playground: Open either endpoint in browser")
+
+        print(f"\n📍 Next Steps:")
+        print(f"   1. Auction will open on {open_date}")
+        print(f"   2. Use bidder tokens (alice/bob/charlie) to place test bids")
+        print(f"   3. Test the auction using the Client API")
+        print(f"   4. Monitor via GraphQL subscriptions for real-time updates")
+
+        print(f"\n💡 Tip: Save your Sale ID ({sale_id}) to interact with this auction later!")
+
+        # Save auction info to file
+        with open('demo_auction_staging_info.txt', 'w') as f:
+            f.write(f"Demo Auction Information - STAGING\n")
+            f.write(f"===================================\n\n")
+            f.write(f"Environment: STAGING (basta.wtf)\n")
+            f.write(f"Sale ID: {sale_id}\n")
+            f.write(f"Account ID: {account_id}\n")
+            f.write(f"Created: {datetime.utcnow().isoformat()}Z\n\n")
+            f.write(f"API Endpoints:\n")
+            f.write(f"  Management API: https://management.api.basta.wtf/graphql\n")
+            f.write(f"  Client API: https://client.api.basta.wtf/graphql\n\n")
+            f.write(f"Bidder Tokens:\n")
+            for bidder_id, token in tokens.items():
+                f.write(f"  {bidder_id}: {token}\n")
+            f.write(f"\nItem IDs:\n")
+            for item in created_items:
+                f.write(f"  {item['id']}: {item['title']}\n")
+
+        print(f"\n💾 Auction details saved to: demo_auction_staging_info.txt")
+        print()
+
+        return True
+
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+if __name__ == "__main__":
+    import requests  # Import here to check if available
+
+    if len(sys.argv) != 3:
+        print("Usage: python create_demo_auction_staging.py <account_id> <api_key>")
+        print("\nExample:")
+        print("  python create_demo_auction_staging.py acc_123456 sk_abcdef123456")
+        print("\nThis script uses the STAGING environment at basta.wtf")
+        sys.exit(1)
+
+    account_id = sys.argv[1]
+    api_key = sys.argv[2]
+
+    success = create_demo_auction(account_id, api_key)
+    sys.exit(0 if success else 1)

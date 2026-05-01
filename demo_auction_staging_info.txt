@@ -1,0 +1,20 @@
+Demo Auction Information - STAGING
+===================================
+
+Environment: STAGING (basta.wtf)
+Sale ID: 1ba15c64f9-a5ccb000001000d
+Account ID: a4e2ef53-5849-440c-af54-065a85c39b41
+Created: 2026-01-31T12:15:05.749707Z
+
+API Endpoints:
+  Management API: https://management.api.basta.wtf/graphql
+  Client API: https://client.api.basta.wtf/graphql
+
+Bidder Tokens:
+
+Item IDs:
+  29600fce-6103-4959-a592-137c77690bc2: Vintage Rolex Submariner Watch
+  ef69b8e6-58e2-4065-b9a0-ef2dc65e6679: First Edition Harry Potter Book
+  1e2a0a10-956e-4150-8006-fc4b12e1ae88: Mid-Century Modern Eames Lounge Chair
+  98194aee-43b1-4964-b4db-d938f771901d: 1952 Mickey Mantle Baseball Card
+  d446c017-b2f1-48f7-aacb-b0dc18a4f31f: Vintage Gibson Les Paul Guitar

@@ -14,20 +14,28 @@ import requests
 
 class BastaClient:
     """Client for Basta Management and Client APIs."""
-    
+
     MANAGEMENT_URL = "https://management.api.basta.app/query"
     CLIENT_URL = "https://client.api.basta.app/query"
-    
-    def __init__(self, account_id: str, api_key: str):
+
+    def __init__(self, account_id: str, api_key: str, base_domain: str = "basta.app", graphql_path: str = "query"):
         """
         Initialize Basta client.
-        
+
         Args:
             account_id: Your Basta account ID
             api_key: Your API key from Basta dashboard
+            base_domain: Base domain for API (default: basta.app, staging: basta.wtf)
+            graphql_path: GraphQL endpoint path (default: query, staging: graphql)
         """
         self.account_id = account_id
         self.api_key = api_key
+        self.base_domain = base_domain
+        self.graphql_path = graphql_path
+
+        # Set URLs based on domain and path
+        self.MANAGEMENT_URL = f"https://management.api.{base_domain}/{graphql_path}"
+        self.CLIENT_URL = f"https://client.api.{base_domain}/{graphql_path}"
     
     def _management_request(self, query: str, variables: Optional[Dict] = None) -> Dict[str, Any]:
         """Execute a GraphQL request to the Management API."""
@@ -36,12 +44,21 @@ class BastaClient:
             "x-account-id": self.account_id,
             "x-api-key": self.api_key
         }
-        
+
         payload = {"query": query}
         if variables:
             payload["variables"] = variables
-        
+
         response = requests.post(self.MANAGEMENT_URL, json=payload, headers=headers)
+
+        # Try to get detailed error info before raising
+        if not response.ok:
+            try:
+                error_detail = response.json()
+                print(f"API Error Response: {error_detail}")
+            except:
+                pass
+
         response.raise_for_status()
         return response.json()
     
