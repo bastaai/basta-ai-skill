@@ -141,51 +141,54 @@ Send bidder token in connection init:
 }
 ```
 
-### itemUpdates
+### saleActivity (recommended)
 
-Subscribe to real-time updates for an item.
+Subscribe to real-time sale and item updates. Returns a union type `SaleActivity = Sale | Item` — each message is either a sale-level or item-level update. This is the preferred subscription; `itemChanged` is deprecated.
 
 **Arguments:**
 - `saleId` (ID!) - Sale ID
-- `itemId` (ID!) - Item ID
+- `itemIdFilter` (ItemIdsFilter) - Optional filter for specific items
 
-**Example:**
+**Example (all activity):**
 ```graphql
-subscription WatchItem {
-  itemUpdates(saleId: "sale_abc123", itemId: "item_xyz789") {
-    itemId
-    currentBid
-    bidCount
-    status
-    timeRemaining
-    myBidStatus {
-      isWinning
-      maxBid
+subscription WatchSale {
+  saleActivity(saleId: "sale_abc123") {
+    ... on Sale {
+      id
+      title
+      status
+    }
+    ... on Item {
+      id
+      title
+      status
+      currentBid
+      totalBids
+      leaderId
+      dates {
+        openDate
+        closingStart
+        closingEnd
+      }
     }
   }
 }
 ```
 
-### saleUpdates
-
-Subscribe to all items in a sale.
-
-**Arguments:**
-- `saleId` (ID!) - Sale ID
-
-**Example:**
+**Example (filtered to specific items):**
 ```graphql
-subscription WatchSale {
-  saleUpdates(saleId: "sale_abc123") {
-    itemId
-    title
-    currentBid
-    bidCount
-    status
-    timeRemaining
+subscription WatchItems {
+  saleActivity(
+    saleId: "sale_abc123"
+    itemIdFilter: { itemIds: ["item_1", "item_2"] }
+  ) {
+    ... on Sale { id status }
+    ... on Item { id status currentBid totalBids leaderId }
   }
 }
 ```
+
+Sale-level updates are always included regardless of the item filter.
 
 ## Type Definitions
 
@@ -204,13 +207,13 @@ subscription WatchSale {
 - `maxBid` (Int) - Bidder's maximum bid (for MAX bids)
 - `currentBid` (Int) - Current bid amount
 
-### ItemUpdate
-- `itemId` (ID!)
-- `currentBid` (Int)
-- `bidCount` (Int)
-- `status` (ItemStatus!)
-- `timeRemaining` (Int) - Seconds until closing
-- `myBidStatus` (MyBidStatus)
+### SaleActivity (Union)
+`union SaleActivity = Sale | Item`
+
+Returns either a `Sale` or `Item` object on each subscription event. Use inline fragments to handle both types.
+
+### ItemIdsFilter (Input)
+- `itemIds` ([ID!]) - List of item IDs to filter subscription events
 
 ## WebSocket Connection
 
@@ -237,7 +240,7 @@ subscription WatchSale {
   "id": "1",
   "type": "subscribe",
   "payload": {
-    "query": "subscription { itemUpdates(saleId: \"...\", itemId: \"...\") { ... } }"
+    "query": "subscription { saleActivity(saleId: \"...\") { ... on Sale { id status } ... on Item { id status currentBid totalBids } } }"
   }
 }
 ```
@@ -249,7 +252,7 @@ subscription WatchSale {
   "type": "next",
   "payload": {
     "data": {
-      "itemUpdates": { ... }
+      "saleActivity": { ... }
     }
   }
 }
@@ -270,10 +273,18 @@ const client = createClient({
 client.subscribe({
   query: `
     subscription {
-      itemUpdates(saleId: "sale_abc", itemId: "item_xyz") {
-        currentBid
-        bidCount
-        status
+      saleActivity(saleId: "sale_abc") {
+        ... on Sale {
+          id
+          status
+        }
+        ... on Item {
+          id
+          currentBid
+          totalBids
+          status
+          leaderId
+        }
       }
     }
   `

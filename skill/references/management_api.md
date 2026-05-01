@@ -341,6 +341,104 @@ query ListSales {
 - `closingStart` (DateTime!)
 - `closingEnd` (DateTime!)
 
+## Subscriptions
+
+### saleActivity
+
+Real-time subscription for sale-related events. Streams both `Sale` and `SaleItem` updates over WebSocket.
+
+**Arguments:**
+- `accountId` (String!) - Your account ID
+- `saleId` (ID!) - Sale to subscribe to
+- `itemIdFilter` (ItemIdsFilter) - Optional filter to only receive updates for specific items
+
+**Returns:** `SaleActivity!` — a union type that can be either a `Sale` or `SaleItem`
+
+**Union Type:**
+```graphql
+union SaleActivity = Sale | SaleItem
+```
+
+**ItemIdsFilter Input:**
+```graphql
+input ItemIdsFilter {
+  itemIds: [ID!]
+}
+```
+
+**Example (subscribe to all activity on a sale):**
+```graphql
+subscription {
+  saleActivity(accountId: "ACCOUNT_ID", saleId: "sale_abc123") {
+    ... on Sale {
+      id
+      title
+      status
+      closingTimeCountdown
+    }
+    ... on SaleItem {
+      id
+      title
+      status
+      currentBid
+      totalBids
+      leaderId
+      dates {
+        openDate
+        closingStart
+        closingEnd
+      }
+    }
+  }
+}
+```
+
+**Example (subscribe to specific items only):**
+```graphql
+subscription {
+  saleActivity(
+    accountId: "ACCOUNT_ID"
+    saleId: "sale_abc123"
+    itemIdFilter: { itemIds: ["item_1", "item_2"] }
+  ) {
+    ... on Sale {
+      id
+      status
+    }
+    ... on SaleItem {
+      id
+      status
+      currentBid
+      totalBids
+      leaderId
+    }
+  }
+}
+```
+
+**WebSocket Connection:**
+
+Endpoint: `wss://management.api.basta.app/query`
+Protocol: `graphql-ws`
+
+Authentication is via HTTP headers on the WebSocket upgrade request (same as regular API calls):
+```
+x-account-id: YOUR_ACCOUNT_ID
+x-api-key: YOUR_API_KEY
+```
+
+**Key SaleItem fields available in subscription:**
+- `id` (ID!) - Item ID
+- `title` (String) - Item title
+- `status` (ItemStatus!) - Current item status
+- `currentBid` (Int) - Current bid amount in cents
+- `currentMaxBid` (Int) - Current max bid amount (only set when leading bid is a max bid)
+- `totalBids` (Int!) - Number of bids placed
+- `leaderId` (String) - User ID of current leader
+- `reserve` (Int) - Reserve price in cents
+- `startingBid` (Int) - Starting bid in cents
+- `dates` (ItemDates!) - Open, closing start, and closing end timestamps
+
 ## Enums
 
 ### SaleStatus

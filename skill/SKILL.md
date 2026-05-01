@@ -206,9 +206,49 @@ mutation BidOnItem {
 }
 ```
 
-## Real-time Updates
+## Real-time Updates (saleActivity Subscription)
 
-For live auction experiences, use GraphQL subscriptions over WebSocket:
+Both APIs support a `saleActivity` GraphQL subscription over WebSocket for real-time sale and item updates.
+
+The subscription returns a **union type** `SaleActivity = Sale | SaleItem`, meaning each message is either a full `Sale` update or a `SaleItem` update. Use inline fragments (`... on Sale`, `... on SaleItem`) to handle both.
+
+### Management API Subscription
+
+**Endpoint:** `wss://management.api.basta.app/query`
+**Protocol:** graphql-ws
+
+Authenticate via HTTP headers on the WebSocket upgrade request (same as regular API calls):
+```
+x-account-id: YOUR_ACCOUNT_ID
+x-api-key: YOUR_API_KEY
+```
+
+```graphql
+subscription {
+  saleActivity(accountId: "ACCOUNT_ID", saleId: "SALE_ID") {
+    ... on Sale {
+      id
+      title
+      status
+    }
+    ... on SaleItem {
+      id
+      title
+      status
+      currentBid
+      totalBids
+      leaderId
+      dates {
+        openDate
+        closingStart
+        closingEnd
+      }
+    }
+  }
+}
+```
+
+### Client API Subscription
 
 **Endpoint:** `wss://client.api.basta.app/query`
 **Protocol:** graphql-ws
@@ -224,18 +264,49 @@ Connect with bidder token in `connection_init` payload:
 }
 ```
 
-Subscribe to auction events:
-
 ```graphql
 subscription {
-  auctionUpdates(saleId: "SALE_ID") {
-    itemId
-    currentBid
-    bidCount
-    status
+  saleActivity(saleId: "SALE_ID") {
+    ... on Sale {
+      id
+      title
+      status
+    }
+    ... on Item {
+      id
+      title
+      status
+      currentBid
+      totalBids
+      leaderId
+      dates {
+        openDate
+        closingStart
+        closingEnd
+      }
+    }
   }
 }
 ```
+
+### Filtering by Item IDs
+
+Both APIs accept an optional `itemIdFilter` to limit updates to specific items:
+
+```graphql
+subscription {
+  saleActivity(
+    accountId: "ACCOUNT_ID"  # Management API only
+    saleId: "SALE_ID"
+    itemIdFilter: { itemIds: ["item_1", "item_2"] }
+  ) {
+    ... on Sale { id status }
+    ... on SaleItem { id status currentBid totalBids leaderId }
+  }
+}
+```
+
+Sale-level updates are always included regardless of the item filter.
 
 ## Webhooks
 
