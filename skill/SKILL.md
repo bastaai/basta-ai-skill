@@ -1,17 +1,23 @@
 ---
 name: basta
-description: Integration with Basta auction and ecommerce APIs. Use when users want to create auctions, manage sales, handle bidding, or work with auction-related data using Basta's GraphQL APIs (Management API and Client API). Trigger on requests involving auctions, sales, items, bids, bidders, or real-time auction updates.
+description: Integration with Basta auction and marketplace (ecommerce) APIs. Use when users want to create auctions, manage sales, handle bidding, or build a storefront (products, carts, checkout, orders, fulfillment) using Basta's GraphQL APIs — the auction Management API and Client API, and the Marketplace Shop API and Admin API. Trigger on requests involving auctions, sales, items, bids, bidders, real-time auction updates, or ecommerce products, variants, collections, carts, orders, and checkout.
 ---
 
 # Basta API Integration
 
 ## Overview
 
-Basta is an API-first ecommerce engine for auctions and dynamic pricing. This skill provides workflows for integrating with Basta's two GraphQL APIs to create and manage auctions, handle bidding, and build real-time auction experiences.
+Basta is an API-first commerce engine spanning two product surfaces: **Auctions** (sales,
+items, bidding, dynamic pricing) and a **Marketplace** (a full ecommerce stack — products,
+variants, carts, checkout, orders, fulfillment, payments, promotions, tax, shipping). This
+skill provides workflows for integrating with Basta's four GraphQL APIs across both
+surfaces.
 
 ## API Architecture
 
-Basta provides two GraphQL APIs with distinct purposes:
+Basta provides **four** GraphQL APIs across two surfaces.
+
+### Auction APIs
 
 **Management API** (`https://management.api.basta.app`)
 - Server-side, authenticated operations
@@ -26,6 +32,21 @@ Basta provides two GraphQL APIs with distinct purposes:
 - Place bids (with bidder token)
 - Real-time updates via WebSocket subscriptions
 - Authentication: Optional JWT bidder tokens
+
+### Marketplace (ecommerce) APIs
+
+**Shop API** (`https://marketplace.api.basta.app/shop/graphql`, playground at `/shop`)
+- Public storefront operations: browse products/collections, search, build a cart, checkout
+- Guest and authenticated shoppers; customer profile and order history
+- Authentication: `MARKETPLACE-ACCOUNT-ID` header (required) + optional `Authorization: Bearer <JWT>`; guest carts via `x-marketplace-session` ⇄ `marketplace_session` cookie
+
+**Admin API** (`https://marketplace.api.basta.app/admin/graphql`, playground at `/admin`)
+- Dashboard operations: manage catalog, orders, fulfillment, payments/refunds, customers, promotions, shipping, tax, zones, settings, images
+- Authentication: `x-account-id` + `x-api-key`, **or** `ory_kratos_session` cookie. Every operation also takes an `accountId: String!` argument
+- API version: `2026-02`
+
+See `references/marketplace_shop_api.md` and `references/marketplace_admin_api.md` for the
+full Marketplace schemas. The auction workflows below cover the Management/Client APIs.
 
 ## Core Workflows
 
@@ -361,6 +382,95 @@ Basta can notify your application when events occur via webhooks. Configure webh
 }
 ```
 
+## Auction Fees & Registrations
+
+Two operator-side auction capabilities, both managed through the **Management API**:
+
+**Fees** — buyer/seller charges (e.g. Buyer's Premium, Platform Fee) resolved through an
+**account → sale → item** cascade (item overrides sale overrides account). Configure with
+`createAccountFee` / `createSaleFee` / `createSaleItemFee` (+ update/delete, and
+`resetSaleFees`). Read effective fees via `Sale.feeRules` / `SaleItem.feeRules` (each
+`FeeRule` has a `source`); placed-order `OrderLine`s expose `fees` and `sellerFees`. Fee
+`value` is `500` = 5% (`PERCENTAGE`) or `1000` = $10 (`AMOUNT`, minor units), with
+`FLAT`/`PROGRESSIVE` bracket calculation.
+
+**Registrations** — bidders are registered to a sale (types `ONLINE`/`PHONE`/`PADDLE`/
+`AGGREGATOR`; status `PENDING`→`ACCEPTED`/`REJECTED`) and gated by `Sale.bidRestrictions`
+and CEL-based registration policies. Use `createSaleRegistration` → `acceptSaleRegistration`
+/ `rejectSaleRegistration`, per-item `createSaleItemRegistration`, and policy
+create/update/attach/detach mutations. **Registration is operator-driven via the Management
+API** — the Client API only exposes the bidder's own registrations
+(`Sale.userSaleRegistrations`, `bidRestrictions`) read-only.
+
+See `references/fees_and_registrations.md` for the full reference.
+
+## Watchlist, Highlighted Items & Metafields
+
+Three auction merchandising/personalisation features spanning both auction APIs:
+
+- **Watchlist / favourites** — bidders favourite sales/items/accounts on the **Client API**
+  (`subscribeToSale`, `subsribeToItem` *(sic — misspelled in schema)*, `subscribeToAccount`,
+  + `unsubscribe*`; `isUserSubscribed`). Operators read the resulting watchlist on the
+  **Management API** (`Sale.watchlist`, `SaleItem.watchlist`).
+- **Highlighted items** — feature items on a sale page, ordered by `position`. Set
+  `highlight` on item create/update and reorder with `reorderHighlightedItems`; read via
+  `Sale.highlighted` / `SaleItem.highlight` (`Item.highlight` on the Client API).
+- **Metafields** — arbitrary key/value custom data on Account/Sale/Item/SaleItem
+  (single-line or rich text). Read with `metafields`/`metafield`; write (Management API)
+  with `setMetafields` (≤10 at a time) and `deleteMetafield`.
+
+See `references/watchlist_highlights_metafields.md` for the full reference.
+
+## Marketplace (Ecommerce) Workflows
+
+The Marketplace engine is a full ecommerce stack, separate from the auction APIs. It can
+stand alone or mirror auction items into purchasable variants (a `ProductVariant`'s
+`customFields.bastaItemId` links it back to an auction item).
+
+### Storefront (Shop API)
+
+Typical browse → cart → checkout flow (send `MARKETPLACE-ACCOUNT-ID` on every request;
+add `Authorization: Bearer <JWT>` for logged-in shoppers):
+
+1. **Discover** — `products`, `collections`, `facets`, or `search` (full-text + facet /
+   collection / price filters, with aggregations for filter UIs).
+2. **Build the cart** — `addItemToOrder(productVariantId, quantity)` (a guest cart is
+   auto-created), `adjustOrderLine`, `removeOrderLine`, `applyCouponCode`. Read the cart
+   with `activeOrder`.
+3. **Address & shipping** — `setOrderShippingAddress` (or `…FromUser` for a saved
+   address), then `eligibleShippingMethods` → `setOrderShippingMethod`.
+4. **Customer & checkout** — `setCustomerForOrder` (guest) then
+   `transitionOrderToState("ArrangingPayment")`. Use `nextOrderStates` to discover legal
+   transitions. All money is in minor units (cents), with net (`price`) and gross
+   (`priceWithTax`) variants.
+
+```graphql
+# Headers: MARKETPLACE-ACCOUNT-ID: <account>   (+ optional Authorization: Bearer <jwt>)
+mutation { addItemToOrder(productVariantId: "var_123", quantity: 1) { id totalWithTax } }
+```
+
+### Dashboard (Admin API)
+
+Every Admin query/mutation takes `accountId: String!`. Capabilities: catalog
+(`createProduct`, `createProductVariants`, option groups, collections, facets), order
+management (`orders`, `transitionOrderToState`, `addManualPaymentToOrder`, `refundOrder`,
+`addFulfillmentToOrder`), customers, promotions, shipping methods, tax categories/rates,
+zones/countries, marketplace settings, and a two-step image upload
+(`createMarketplaceUploadUrl` → PUT → `upsertMarketplaceImage`).
+
+```graphql
+mutation CreateProduct($a: String!) {
+  createProduct(accountId: $a, input: {
+    name: "Field Notebook", slug: "field-notebook", enabled: true
+  }) { id slug }
+}
+```
+
+**Order state machine:** `Draft`/`AddingItems` → `ArrangingPayment` → `PaymentAuthorized`
+→ `PaymentSettled` → (`PartiallyShipped`→`Shipped`, `PartiallyDelivered`→`Delivered`) ·
+`Cancelled` · `Modifying`/`ArrangingAdditionalPayment`. Stock is deducted on entry to
+`PaymentSettled` and restored on cancellation. See `references/marketplace_admin_api.md`.
+
 ## Implementation Guidelines
 
 **Workflow Selection:**
@@ -439,7 +549,17 @@ Basta can notify your application when events occur via webhooks. Configure webh
 ## References
 
 For detailed API schemas and examples:
-- `references/management_api.md` - Complete Management API reference
-- `references/client_api.md` - Complete Client API reference
+
+**Auctions:**
+- `references/management_api.md` - Complete auction Management API reference
+- `references/client_api.md` - Complete auction Client API reference
+- `references/fees_and_registrations.md` - Fee cascade (account/sale/item) and sale/item registrations across both auction APIs
+- `references/watchlist_highlights_metafields.md` - Watchlist/favourites, highlighted items, and metafields across both auction APIs
 - `references/webhooks.md` - Comprehensive webhooks guide with implementation examples
+
+**Marketplace (ecommerce):**
+- `references/marketplace_shop_api.md` - Storefront Shop API reference (products, search, cart, checkout)
+- `references/marketplace_admin_api.md` - Dashboard Admin API reference (catalog, orders, fulfillment, promotions, tax)
+
+**General:**
 - `references/glossary.md` - Basta terminology and concepts

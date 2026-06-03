@@ -89,9 +89,16 @@ await client.subscribe_to_item(sale_id="...", item_id="...", callback=handle_upd
 
 ### Reference Documentation (`skill/references/`)
 
-- **management_api.md** - Complete Management API reference
-- **client_api.md** - Complete Client API reference  
+Auctions:
+- **management_api.md** - Complete auction Management API reference
+- **client_api.md** - Complete auction Client API reference
 - **webhooks.md** - Comprehensive webhooks guide
+
+Marketplace (ecommerce):
+- **marketplace_shop_api.md** - Storefront Shop API reference (products, search, cart, checkout)
+- **marketplace_admin_api.md** - Dashboard Admin API reference (catalog, orders, fulfillment, promotions, tax)
+
+General:
 - **glossary.md** - All Basta terminology and concepts
 
 ## Quick Start with Basta
@@ -104,8 +111,13 @@ await client.subscribe_to_item(sale_id="...", item_id="...", callback=handle_upd
 
 ### 2. Test in GraphQL Playground
 
+Auctions:
 - Management API: https://management.api.basta.app
 - Client API: https://client.api.basta.app
+
+Marketplace (ecommerce):
+- Shop API: https://marketplace.api.basta.app/shop
+- Admin API: https://marketplace.api.basta.app/admin
 
 ### 3. Create Your First Auction
 
@@ -190,6 +202,17 @@ client.publish_sale(sale["id"])
 - Real-time auction updates
 - Uses graphql-ws protocol
 - Authenticated with bidder tokens
+
+### Marketplace Shop API
+**Endpoint:** `https://marketplace.api.basta.app/shop/graphql` (playground at `/shop`)
+- Public storefront: browse products/collections, search, cart, checkout
+- Guest and authenticated shoppers; customer profile and order history
+- Requires `MARKETPLACE-ACCOUNT-ID` header; optional `Authorization: Bearer <JWT>`
+
+### Marketplace Admin API
+**Endpoint:** `https://marketplace.api.basta.app/admin/graphql` (playground at `/admin`)
+- Dashboard: catalog, orders, fulfillment, payments/refunds, customers, promotions, shipping, tax, settings
+- Requires `x-account-id` + `x-api-key` (or Kratos session); every operation takes an `accountId` argument
 
 ## Bid Types
 
