@@ -295,6 +295,46 @@ client.subscribe({
 });
 ```
 
+## Fees & Registrations (read-only)
+
+The Client API exposes auction fees and the bidder's own registrations for display; both
+are **configured/managed on the Management API**, not here.
+
+**Fees** — `Sale.feeRules: [FeeRule!]!` and `SaleItem.feeRules: [FeeRule!]!` return the
+effective fees (e.g. Buyer's Premium). Each `FeeRule` has `name`, `type`
+(`PERCENTAGE`/`AMOUNT`), `value` (`500` = 5%; `1000` = $10 minor units), `lowerLimit`,
+`upperLteLimit`, and `calculationType` (`FLAT`/`PROGRESSIVE`).
+
+**Registrations** — there is **no self-registration mutation**; a server registers bidders
+via the Management API. The Client API reads:
+- `Sale.userSaleRegistrations: [UserSaleRegistration!]!` — the authenticated user's sale
+  registration(s): `registrationType` (`ONLINE`/`PHONE`/`PADDLE`/`AGGREGATOR`), `status`
+  (`PENDING`/`ACCEPTED`/`REJECTED`), `policyResults`, `identifier`, phone numbers.
+- `Item.userItemRegistrations: [UserItemRegistration!]!` — their item-level registrations.
+- `Sale.bidRestrictions { acceptedRegistrationRequired, phoneRegistrationOpen }` — use this
+  to decide whether the UI must require an accepted registration before allowing a bid.
+- Bid results carry `registration: UserSaleRegistration` (null for pre-registration bids).
+
+> See `references/fees_and_registrations.md` for the complete cross-API reference.
+
+## Watchlist / Favourites, Highlights & Metafields
+
+**Favourite (watchlist)** — bidders favourite sales, items, and accounts:
+- `subscribeToSale(saleId): UserSaleSubscription!` / `unsubscribeFromSale(saleId): ID!`
+- `subsribeToItem(saleId, itemId): UserSaleItemSubscription!` / `unsubscribeFromItem(saleId, itemId): ID!` — note the field name `subsribeToItem` is misspelled in the schema; use it verbatim.
+- `subscribeToAccount(accountId): UserAccountSubscription!` / `unsubscribeFromAccount(accountId): ID!`
+- `Sale.isUserSubscribed: Boolean!`, `Item.isUserSubscribed: Boolean!`
+
+**Highlighted items** (read-only) — `Sale.highlighted: HighlightedItemConnection!`
+(`edges { node: Item!, position }`) and `Item.highlight: ItemHighlight { enabled, position }`.
+
+**Metafields** (read-only) — `Sale`/`Item` expose
+`metafields(input: GetMetafieldsInput): [MetafieldsConnection!]!` and
+`metafield(input: GetMetafieldInput!): Metafield`. `Metafield { id, key, value, valueType }`;
+on the Client API results are wrapped in `MetafieldsConnection` (`edges`, `nodes`, `pageInfo`).
+
+> See `references/watchlist_highlights_metafields.md` for the full cross-API reference.
+
 ## Best Practices
 
 **Bidding:**

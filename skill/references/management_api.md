@@ -460,3 +460,76 @@ x-api-key: YOUR_API_KEY
 ### BidType
 - MAX - Maximum bid (proxy bidding)
 - NORMAL - Direct bid at specific amount
+
+## Fees
+
+The Management API configures buyer/seller fees (e.g. Buyer's Premium, Platform Fee)
+through an **account → sale → item** cascade — item overrides sale overrides account.
+
+- **Account defaults:** `createAccountFee` / `updateAccountFee` / `deleteAccountFee`
+  (permission `WRITE_ACCOUNT`) operate on `AccountFee` records.
+- **Sale overrides:** `createSaleFee` / `updateSaleFee` / `deleteSaleFee`, plus
+  `resetSaleFees` (revert a sale to account defaults). Return `FeeRule` (`WRITE_SALE`).
+- **Item overrides:** `createSaleItemFee` / `updateSaleItemFee` / `deleteSaleItemFee`.
+- **Reading effective fees:** `Sale.feeRules: [FeeRule!]!` (+ `Sale.hasDefaultSaleFees`)
+  and `SaleItem.feeRules: [FeeRule!]!`; each `FeeRule` carries `source`
+  (`ACCOUNT`/`SALE`/`ITEM`). Order lines expose `fees` (buyer) and `sellerFees`.
+
+Each fee has `type` (`PERCENTAGE`/`AMOUNT`), `value` (`500` = 5%; `1000` = $10 in minor
+units), `lowerLimit` (exclusive), optional `upperLteLimit` (inclusive), and
+`calculationType` (`FLAT` or `PROGRESSIVE`).
+
+```graphql
+mutation {
+  createSaleFee(accountId: "ACCOUNT_ID", input: {
+    saleId: "sale_abc123", name: "Buyer's Premium",
+    type: PERCENTAGE, value: 2000, lowerLimit: 0, calculationType: FLAT
+  }) { id name value source }
+}
+```
+
+## Registrations
+
+Bidders are registered to a sale (and optionally to specific items), gated by registration
+policies (CEL expressions) and `Sale.bidRestrictions`. Registration is **operator-driven
+via this Management API** — the Client API only reads the bidder's own registrations.
+
+- **Registrations:** `createSaleRegistration`, `acceptSaleRegistration`,
+  `rejectSaleRegistration`, `deleteSaleRegistration` (all `WRITE_SALE`). Type is
+  `ONLINE`/`PHONE`/`PADDLE`/`AGGREGATOR`; status `PENDING`→`ACCEPTED`/`REJECTED`.
+- **Item registrations:** `createSaleItemRegistration` / `deleteSaleItemRegistration`.
+- **Policies:** `createSaleRegistrationPolicy`, `updateSaleRegistrationPolicy`,
+  `attachSaleRegistrationPolicies`, `detachSaleRegistrationPolicies` (no delete — detach
+  instead). A policy is a CEL `rule` with `code`, `description`, `isDefault`.
+- **Queries:** `saleRegistrations(filter: SaleRegistrationsQueryFilter, …)`,
+  `saleRegistrationPolicies(…)`, plus `Sale.registrations` / `Sale.registrationPolicies`.
+
+```graphql
+mutation {
+  createSaleRegistration(accountId: "ACCOUNT_ID", input: {
+    saleId: "sale_abc123", userId: "user_123", type: ONLINE
+  }) { id status }
+}
+```
+
+> See `references/fees_and_registrations.md` for the full fee + registration reference
+> (all types, inputs, enums, calculation semantics, and Client API read-side).
+
+## Watchlist, Highlighted Items & Metafields
+
+- **Watchlist** — read who has favourited a sale/item: `Sale.watchlist(input: SaleWatchlistInput)`
+  and `SaleItem.watchlist(input: SaleItemWatchlistInput)` return paginated
+  `*WatchlistConnection`s of entries (`userId`, `createdAt`). Bidders favourite via the
+  Client API (`subscribeToSale` etc.).
+- **Highlighted items** — `SaleItem.highlight: ItemHighlight { enabled, position }`;
+  `Sale.highlighted: HighlightedSaleItemConnection!` lists them ordered by position. Set
+  `highlight: ItemHighlightInput` on item create/update, and reorder atomically with
+  `reorderHighlightedItems(input: ReorderHighlightedItemsInput { saleId, itemIds })`
+  (`WRITE_SALE`).
+- **Metafields** — arbitrary key/value data on Account/Sale/Item/SaleItem. Read via
+  `metafields(input: {keys})` / `metafield(input: {key})`; write with
+  `setMetafields(metafields: [SetMetafieldInput!]!)` (≤10 at a time) and
+  `deleteMetafield(input: DeleteMetafieldInput)` (`WRITE_METAFIELDS`). Value types:
+  single-line or rich text.
+
+> See `references/watchlist_highlights_metafields.md` for the full reference across both APIs.

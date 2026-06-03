@@ -171,6 +171,145 @@ Standardized error identifiers returned in `BidPlacedError`:
 4. Process event based on actionType
 5. Handle BidOnItem, SaleStatusChanged, ItemsStatusChanged events
 
+## Auction Fees
+
+**Fee Cascade**
+Auction fees resolve through a three-level hierarchy — **account → sale → item** — where
+the most specific level wins (item overrides sale overrides account). A sale begins with a
+snapshot of the account defaults; customizing it replaces that snapshot for the sale.
+
+**AccountFee**
+An account-level default fee record (`type` PERCENTAGE/AMOUNT, `value`, `lowerLimit`,
+`upperLteLimit`, `calculationType`). The account's standard fee schedule.
+
+**FeeRule**
+An effective sale- or item-level fee. Same shape as an AccountFee plus a `source`
+(`ACCOUNT`/`SALE`/`ITEM`) indicating which cascade level it came from. Read via
+`Sale.feeRules` / `SaleItem.feeRules`.
+
+**Fee value & types**
+`value` is interpreted by `type`: `500` means **5%** (`PERCENTAGE`); `1000` means **$10.00**
+in minor units (`AMOUNT`). `lowerLimit` is exclusive, `upperLteLimit` is an inclusive upper
+bound.
+
+**Calculation type (FLAT vs PROGRESSIVE)**
+`FLAT` applies the rate/charge to the whole matching amount. `PROGRESSIVE` evaluates each
+bracket independently — percentage fees apply only to the slice of the amount within the
+bracket; amount fees apply once when the amount exceeds the bracket's lower limit.
+
+**OrderLineFee**
+A fee materialized onto a placed order line. `OrderLine.fees` are buyer fees (e.g. Buyer's
+Premium); `OrderLine.sellerFees` are seller-paid (e.g. Platform Fee). `PaymentDetails`
+carries `accountFees`.
+
+## Auction Registrations
+
+**Sale Registration**
+A bidder's registration to a sale. Has a `type` (ONLINE, PHONE, PADDLE, AGGREGATOR) and a
+`status` (PENDING → ACCEPTED / REJECTED). Created and managed **operator-side via the
+Management API** — bidders do not self-register through the Client API.
+
+**Sale Item Registration**
+A per-item registration under a sale registration (e.g. paddle/phone bidding scoped to
+specific lots). Creating one creates the parent sale registration for that user+type if
+needed.
+
+**Bid Restrictions**
+`Sale.bidRestrictions`: `acceptedRegistrationRequired` (bidder must have an ACCEPTED
+registration to bid) and `phoneRegistrationOpen`.
+
+**Registration Policy**
+A reusable rule expressed as a **CEL** (Common Expression Language) expression, with
+`code`, `description`, `rule`, and `isDefault` (auto-applied to all of the account's
+sales). Policies attach to sales; evaluation yields `SaleRegistrationPolicyResult`
+(`code`, `passed`, `description`) on a registration's `policyResults`.
+
+**Pre-registration bid**
+A bid placed without an associated registration id; the bid's `registration` field is null.
+
+## Watchlist, Highlights & Metafields
+
+**Watchlist / Favourite / Subscribe**
+The same relationship under three names: a user marking a sale, item, or account as a
+favourite. Bidders perform this on the Client API (`subscribeToSale`, `subsribeToItem`
+— note the schema misspells this field, `subscribeToAccount`, and their `unsubscribe*`
+counterparts; plus `isUserSubscribed`). Operators read the resulting **watchlist** (the set
+of subscribers) on the Management API via `Sale.watchlist` / `SaleItem.watchlist`, which
+return entries of `userId` + `createdAt`.
+
+**Highlighted Item**
+An item featured on a sale page. `ItemHighlight` has `enabled` and `position` (lower
+numbers appear first). Set via the item create/update inputs (`ItemHighlightInput`) and
+reordered atomically with `reorderHighlightedItems` (Management API). The sale exposes the
+ordered set via `highlighted`.
+
+**Metafield**
+Arbitrary key/value custom data attached to an entity (Account, Sale, Item, or SaleItem).
+Each has a `key`, `value`, and `valueType` (single-line or rich text); on the Management API
+also an `entityType`. Read with `metafields`/`metafield`; write with `setMetafields`
+(create-or-update, ≤10 at a time) and `deleteMetafield`. Useful for integration- or
+display-specific data the core schema doesn't model.
+
+## Marketplace (Ecommerce) Concepts
+
+The Marketplace is Basta's ecommerce engine, separate from the auction APIs. It exposes
+two GraphQL APIs: the **Shop API** (`marketplace.api.basta.app/shop/graphql`, storefront)
+and the **Admin API** (`marketplace.api.basta.app/admin/graphql`, dashboard).
+
+**Product**
+A merchandising parent. Pricing, SKU, and inventory live on its variants, not the product
+itself. Has a `slug`, `description`, option groups, facet values, and collections.
+
+**ProductVariant**
+A purchasable SKU under a product — the level at which `price`, `sku`, `stockLevel`, and
+inventory are tracked. Identified within a product by its option values (e.g. Size + Color).
+`customFields.bastaItemId` optionally links a variant back to an auction item.
+
+**Order (cart vs. placed order)**
+Carts and placed orders share the same `Order` type, differing by `state`/`active`. An
+`active` order in `AddingItems` / `ArrangingPayment` / `ArrangingAdditionalPayment` /
+`Modifying` is a working cart; a non-active order is a placed order moving through
+fulfillment. `activeOrder` (Shop API) returns the caller's current cart.
+
+**Order State Machine**
+`Draft` / `AddingItems` → `ArrangingPayment` → `PaymentAuthorized` → `PaymentSettled` →
+(`PartiallyShipped` → `Shipped`, `PartiallyDelivered` → `Delivered`). `Cancelled` is
+reachable from stock-deducted states. `Modifying` / `ArrangingAdditionalPayment` are
+entered when modifying a placed order. Stock is deducted on entry to `PaymentSettled` and
+restored on cancellation.
+
+**Minor Units**
+All marketplace money amounts are integers in the currency's minor units (e.g. cents).
+Each priced field has a net form (`price`, `total`) and a gross/tax-inclusive form
+(`priceWithTax`, `totalWithTax`).
+
+**Collection**
+A hierarchical category of products (parent/children) used for storefront navigation and
+merchandising. Membership can be manual (`setCollectionProducts`) or automatic (filters).
+
+**Facet / FacetValue**
+A taxonomy dimension (e.g. "Color", "Material") and its values (e.g. "Red"). Powers
+search filtering and merchandising. Facets may be private (admin-only).
+
+**Promotion**
+A discount rule (conditions + actions, configured by handler `type` + JSON `argsJson`).
+Applies automatically or requires a `couponCode`; supports usage limits and priority.
+
+**Fulfillment**
+A shipment grouping one or more order lines, shipped via a single method. Moves through
+states like `Pending` → `Shipped` → `Delivered`.
+
+**Tax Category / Tax Rate / Zone**
+A `TaxRate` (a decimal, e.g. `0.24` for 24%) applies to one `TaxCategory` within one
+`Zone` (a named group of countries). Shipping methods are also scoped by zone.
+
+**Marketplace Authentication**
+- **Shop API:** `MARKETPLACE-ACCOUNT-ID` header (required, identifies the storefront) +
+  optional `Authorization: Bearer <JWT>` for logged-in shoppers. Guest carts use the
+  `x-marketplace-session` header, round-tripped as a `marketplace_session` cookie.
+- **Admin API:** `x-account-id` + `x-api-key`, or an `ory_kratos_session` cookie. Every
+  operation also takes an `accountId: String!` argument.
+
 ## Webhooks
 
 **Idempotency Key**
