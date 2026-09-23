@@ -90,13 +90,13 @@ await client.subscribe_to_item(sale_id="...", item_id="...", callback=handle_upd
 ### Reference Documentation (`skill/references/`)
 
 Auctions:
-- **management_api.md** - Complete auction Management API reference
-- **client_api.md** - Complete auction Client API reference
+- **management_api.md** - Complete auction Management API reference (sales, items, fees, offers/Buy-Now, Dutch auctions, consignments, live sales)
+- **client_api.md** - Complete auction Client API reference (bidding, make-an-offer, Dutch bidding, notification preferences)
 - **webhooks.md** - Comprehensive webhooks guide
 
 Marketplace (ecommerce):
-- **marketplace_shop_api.md** - Storefront Shop API reference (products, search, cart, checkout)
-- **marketplace_admin_api.md** - Dashboard Admin API reference (catalog, orders, fulfillment, promotions, tax)
+- **marketplace_shop_api.md** - Storefront Shop API reference (products, search/searchAsync, cart, checkout, offers)
+- **marketplace_admin_api.md** - Dashboard Admin API reference (catalog, orders, fulfillment, promotions, tax, shipping classes, offers)
 
 General:
 - **glossary.md** - All Basta terminology and concepts
@@ -188,6 +188,7 @@ client.publish_sale(sale["id"])
 - Server-side, authenticated operations
 - Create/manage sales and items
 - Generate bidder tokens
+- Offers (seller side) & Buy-Now, Dutch (descending-clock) auctions, consignments, live-sale clerking
 - Requires `x-account-id` and `x-api-key` headers
 
 ### Client API
@@ -195,6 +196,7 @@ client.publish_sale(sale["id"])
 - Public-facing, client-side operations
 - Browse auctions
 - Place bids (with bidder token)
+- Make-an-offer/negotiation, Dutch-auction bidding, notification preferences
 - Optional JWT authentication
 
 ### WebSocket Subscriptions
@@ -205,13 +207,15 @@ client.publish_sale(sale["id"])
 
 ### Marketplace Shop API
 **Endpoint:** `https://marketplace.api.basta.app/shop/graphql` (playground at `/shop`)
-- Public storefront: browse products/collections, search, cart, checkout
+- Public storefront: browse products/collections, search (incl. `searchAsync`), cart, checkout
 - Guest and authenticated shoppers; customer profile and order history
+- Make-an-offer/negotiation on items linked to auction lots
 - Requires `MARKETPLACE-ACCOUNT-ID` header; optional `Authorization: Bearer <JWT>`
 
 ### Marketplace Admin API
 **Endpoint:** `https://marketplace.api.basta.app/admin/graphql` (playground at `/admin`)
-- Dashboard: catalog, orders, fulfillment, payments/refunds, customers, promotions, shipping, tax, settings
+- Dashboard: catalog, orders, fulfillment, payments/refunds, customers, promotions, shipping (methods & classes), tax, settings
+- Read-only seller view of buyer offers
 - Requires `x-account-id` + `x-api-key` (or Kratos session); every operation takes an `accountId` argument
 
 ## Bid Types
