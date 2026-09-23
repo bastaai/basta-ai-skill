@@ -1,6 +1,6 @@
 ---
 name: basta
-description: Integration with Basta auction and marketplace (ecommerce) APIs. Use when users want to create auctions, manage sales, handle bidding, or build a storefront (products, carts, checkout, orders, fulfillment) using Basta's GraphQL APIs — the auction Management API and Client API, and the Marketplace Shop API and Admin API. Trigger on requests involving auctions, sales, items, bids, bidders, real-time auction updates, or ecommerce products, variants, collections, carts, orders, and checkout.
+description: Integration with Basta auction and marketplace (ecommerce) APIs. Use when users want to create auctions, manage sales, handle bidding, or build a storefront (products, carts, checkout, orders, fulfillment) using Basta's GraphQL APIs — the auction Management API and Client API, and the Marketplace Shop API and Admin API. Trigger on requests involving auctions, sales, items, bids, bidders, real-time auction updates, make-an-offer/negotiation, buy-now, Dutch (descending-clock) auctions, consignments, live-sale clerking, or ecommerce products, variants, collections, carts, orders, and checkout.
 ---
 
 # Basta API Integration
@@ -421,6 +421,29 @@ Three auction merchandising/personalisation features spanning both auction APIs:
 
 See `references/watchlist_highlights_metafields.md` for the full reference.
 
+## Offers, Buy-Now, Dutch Auctions & Live Sales
+
+Beyond classic English (ascending) bidding, the auction APIs support:
+
+- **Make-an-offer (negotiation)** — buyers privately negotiate a price on the **Client API**
+  (`makeOffer`, `counterOffer`, `acceptCounter`, `withdrawOffer`, `offer`). Operators
+  configure and decide on the **Management API** (`setItemOfferConfig` with an auto-accept
+  threshold, `acceptOffer`/`rejectOffer`/`counterOffer`, read via `itemOffers`/`offers`).
+  This is separate from the Marketplace Shop API's offers (same names, different endpoint).
+- **Buy-Now** — a fixed price to buy outright: `setItemBuyNowConfig` and the terminal
+  `buyItem` (on behalf of a buyer; creates a payments order) on the Management API.
+- **Dutch (descending-clock) auctions** — lots start high and drop on a schedule until a
+  buyer accepts. Buyers call `placeDutchBid` (Client API; `amount` must equal the current
+  clock price or it's rejected with `PRICE_MISMATCH`). Operators use `createDutchSale` /
+  `createDutchItemForSale`. Sales are polymorphic via `saleV2`/`salesV2` and `SaleV2`
+  (`... on DutchSale`); real-time via `saleActivityV2`.
+- **Live-sale clerking** — for `LIVE` sales, auctioneer ops `passLiveItem`, `sellLiveItem`,
+  `sellLiveItemToBid` (pin a bid id), and live-stream attach/detach (Management API).
+- **Notification preferences** — buyers opt in/out per event+channel with
+  `setMyNotificationPreferences` (Client API).
+
+See `references/client_api.md` and `references/management_api.md` for full signatures.
+
 ## Marketplace (Ecommerce) Workflows
 
 The Marketplace engine is a full ecommerce stack, separate from the auction APIs. It can
@@ -433,7 +456,9 @@ Typical browse → cart → checkout flow (send `MARKETPLACE-ACCOUNT-ID` on ever
 add `Authorization: Bearer <JWT>` for logged-in shoppers):
 
 1. **Discover** — `products`, `collections`, `facets`, or `search` (full-text + facet /
-   collection / price filters, with aggregations for filter UIs).
+   collection / price filters, with aggregations for filter UIs). `searchAsync` is a
+   Typesense-index-backed variant search (typo tolerance, `filterBy`/`orderBy`, facet
+   stats) that is faster but eventually consistent.
 2. **Build the cart** — `addItemToOrder(productVariantId, quantity)` (a guest cart is
    auto-created), `adjustOrderLine`, `removeOrderLine`, `applyCouponCode`. Read the cart
    with `activeOrder`.
@@ -449,13 +474,20 @@ add `Authorization: Bearer <JWT>` for logged-in shoppers):
 mutation { addItemToOrder(productVariantId: "var_123", quantity: 1) { id totalWithTax } }
 ```
 
+**Make-an-offer (negotiation).** For variants linked to a Basta auction item, authenticated
+buyers can negotiate: `makeOffer` → seller counters (out of band) → buyer `counterOffer` /
+`acceptCounter` / `declineOffer`. Read with `myOffers`, `offer(id)`, or `ProductVariant.offers`.
+`awaitingParty` tracks whose turn it is. See `references/marketplace_shop_api.md`.
+
 ### Dashboard (Admin API)
 
 Every Admin query/mutation takes `accountId: String!`. Capabilities: catalog
-(`createProduct`, `createProductVariants`, option groups, collections, facets), order
-management (`orders`, `transitionOrderToState`, `addManualPaymentToOrder`, `refundOrder`,
-`addFulfillmentToOrder`), customers, promotions, shipping methods, tax categories/rates,
-zones/countries, marketplace settings, and a two-step image upload
+(`createProduct`, `createProductVariants`, `createProductVariantFromItem` to mint a variant
+from a Basta auction item, option groups, collections, facets), order management (`orders`,
+`transitionOrderToState`, `addManualPaymentToOrder`, `refundOrder`, `addFulfillmentToOrder`),
+customers, promotions, shipping methods, shipping classes (`createShippingClass`, referenced
+by a method's `allowedShippingClassIds`), tax categories/rates, zones/countries, marketplace
+settings, read-only buyer offers (`ProductVariant.offers`), and a two-step image upload
 (`createMarketplaceUploadUrl` → PUT → `upsertMarketplaceImage`).
 
 ```graphql

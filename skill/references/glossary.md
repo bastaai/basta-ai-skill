@@ -250,6 +250,45 @@ also an `entityType`. Read with `metafields`/`metafield`; write with `setMetafie
 (create-or-update, ≤10 at a time) and `deleteMetafield`. Useful for integration- or
 display-specific data the core schema doesn't model.
 
+## Auction Formats, Offers & Consignments
+
+**English Auction**
+The classic ascending-bid format (the default). `SaleFormat.ENGLISH`.
+
+**Dutch Auction**
+A descending-clock format (`SaleFormat.DUTCH`): each lot starts at a high price that drops on
+a schedule until a buyer accepts the current clock price. Buyers accept with `placeDutchBid`
+(the declared `amount` must equal the current clock price, or the bid is rejected with
+`PRICE_MISMATCH`). Lots can offer multiple units with partial fills.
+
+**SaleV2**
+A polymorphic sale API returning either an English `Sale` or a `DutchSale`. Queried via
+`saleV2`/`salesV2`; read format-specific fields with inline fragments (`... on DutchSale`).
+`saleActivityV2` is its real-time subscription (`Sale`/`Item`/`DutchSale`/`DutchSaleItem`).
+
+**Offer (Make-an-offer)**
+A private buyer↔seller price negotiation on an item, distinct from bidding. Buyers use the
+Client API (`makeOffer`, `counterOffer`, `acceptCounter`, `withdrawOffer`); operators
+configure and decide on the Management API (`setItemOfferConfig` auto-accept threshold,
+`acceptOffer`/`rejectOffer`/`counterOffer`). `awaitingParty` tracks whose turn it is;
+`OfferStatus` covers PENDING/ACCEPTED/REJECTED/CANCELED/COUNTERED/EXPIRED. (Separate from the
+Marketplace Shop API's own offers, which share operation names on a different endpoint.)
+
+**Buy-Now**
+A fixed price to purchase an item outright. Configured with `setItemBuyNowConfig`; the
+terminal `buyItem` (Management API) buys on a buyer's behalf and creates a payments order.
+
+**Consignment**
+A grouping of items a consignor entrusts to the auction house, with its own fee rules,
+consignor(s), and staff. `shortId` format `CN<YY><M><D><SUFFIX>`. Supports multiple consignors
+(one **main**) and staff (one **lead**). Managed via `createConsignment`/`updateConsignment`
+and `setItemConsignment`.
+
+**Live Sale (clerking)**
+A `LIVE` sale type run by an auctioneer/clerk in real time. Operator ops: `passLiveItem`,
+`sellLiveItem`, and `sellLiveItemToBid` (sell to a pinned bid id), plus live-stream
+attach/detach — all requiring a valid auctioneer session.
+
 ## Marketplace (Ecommerce) Concepts
 
 The Marketplace is Basta's ecommerce engine, separate from the auction APIs. It exposes

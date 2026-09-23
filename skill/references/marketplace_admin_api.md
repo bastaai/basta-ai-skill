@@ -114,6 +114,8 @@ order is cancelled from any stock-deducted state.
 | `promotion` | `id: ID!` | `Promotion` |
 | `shippingMethods` | — | `ShippingMethodList!` |
 | `shippingMethod` | `id: ID!` | `ShippingMethod` |
+| `shippingClasses` | — | `ShippingClassList!` (account-scoped, not paginated) |
+| `shippingClass` | `id: ID!` | `ShippingClass` |
 | `taxCategories` | — | `TaxCategoryList!` |
 | `taxRates` | `taxCategoryId: ID` | `TaxRateList!` |
 | `countries` | — | `[Country!]!` (incl. disabled) |
@@ -151,7 +153,13 @@ query OpenOrders($a: String!) {
 - `deleteProduct(id: ID!): DeletionResponse!` / `deleteProducts(ids: [ID!]!): [DeletionResponse!]!`
 - `createProductVariants(input: [CreateProductVariantInput!]!): [ProductVariant!]!` — bulk;
   variants of one product must use disjoint option-value combinations. Supports
-  `stockOnHand`, `trackInventory`, `weightGrams`, `taxCategoryId`, `bastaItemId`.
+  `stockOnHand`, `trackInventory`, `weightGrams`, `taxCategoryId`, `shippingClassId`, `bastaItemId`.
+- `createProductVariantFromItem(input: CreateProductVariantFromItemInput!): ProductVariant!` —
+  create a variant from an existing **Basta auction item**: `name`, `price` (the item's
+  reserve) and `currency` are taken from the item's content. `input`: `productId: ID!`,
+  `bastaItemId: ID!`, `sku: String!`, plus optional `stockOnHand`, `trackInventory`,
+  `enabled`, `taxCategoryId`, `optionValueIds: [ID!]`, `weightGrams`, `customFields: JSON`,
+  `shippingClassId`.
 - `updateProductVariants(input: [UpdateProductVariantInput!]!): [ProductVariant!]!`
 - `deleteProductVariant(id: ID!)` / `deleteProductVariants(ids: [ID!]!)`
 
@@ -207,8 +215,16 @@ query OpenOrders($a: String!) {
 - `createPromotion` / `updatePromotion` / `deletePromotion` — conditions/actions are
   handler `type` + `argsJson`; `couponCode` null = automatic.
 - `createShippingMethod` / `updateShippingMethod` / `deleteShippingMethod` — `checkerType`,
-  `calculatorType`, `fulfillmentHandler` (+ `*ArgsJson`), optional `zoneId`. `code` is
-  immutable once set.
+  `calculatorType`, `fulfillmentHandler` (+ `*ArgsJson`), optional `zoneId`, and
+  `allowedShippingClassIds` (the shipping classes this method carries; empty = accepts every
+  class). `code` is immutable once set.
+- `createShippingClass(input: CreateShippingClassInput!): ShippingClass!` /
+  `updateShippingClass(input: UpdateShippingClassInput!): ShippingClass!` /
+  `deleteShippingClass(id: ID!): DeletionResponse!` — a shipping class is a tenant-scoped
+  category (`code` unique per account, `name`) assigned to products/variants; the shipping
+  eligibility check filters out methods whose `allowedShippingClassIds` don't cover every
+  line in the cart. Delete fails (`success: false`, with reference counts in `message`) while
+  any product, variant, or shipping method still references it.
 - `createTaxCategory` / `updateTaxCategory`; `createTaxRate` / `updateTaxRate`
   (`rate` as decimal, scoped to a `taxCategoryId` + `zoneId`).
 - `enableCountries(countryCodes)` / `disableCountries(countryCodes)`
@@ -258,10 +274,51 @@ mutation AddVariant($a: String!) {
 }
 ```
 
+## Offers (seller view — read-only)
+
+Buyers negotiate a price on items connected to a Basta auction lot via the **Shop API**
+(`makeOffer`, `counterOffer`, `acceptCounter`, `declineOffer` — see the Shop reference). The
+Admin API exposes those offers **read-only**, scoped to a product variant's connected item:
+
+```graphql
+query VariantOffers($a: String!) {
+  productVariant(accountId: $a, id: "var_123") {
+    id
+    offers(first: 20, status: OFFER_STATUS_PENDING) {
+      edges { node {
+        id itemId buyerUserId amount currency status awaitingParty
+        decidedByUserId decidedByActor expiresAt
+        counters { party amount currency message createdByUserId created }
+      } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+```
+
+`ProductVariant.offers(first, after, status)` returns an `OffersConnection!`. Unlike the
+buyer-scoped Shop view, the admin owns the account and sees **every** offer on the item. The
+admin `Offer` type adds seller-side fields over the shop one: `accountId`, `buyerUserId`,
+`decidedByUserId`, and `decidedByActor: OfferActor` (`OFFER_ACTOR_ADMIN` or
+`OFFER_ACTOR_CONSIGNOR` — who accepted/rejected). Seller accept/reject/counter **actions are
+not exposed in this GraphQL schema** — they are recorded here (via `decidedBy*`) but driven
+from another surface. Amounts are minor-unit `Int` with a plain `currency: String!`; `Offer`
+is the only cursor/Relay-paginated connection in the Admin API.
+
+- **Offer:** `id`, `accountId`, `itemId`, `buyerUserId`, `amount`, `currency`,
+  `status: OfferStatus!`, `message`, `awaitingParty: OfferParty`, `decidedByUserId`,
+  `decidedByActor: OfferActor`, `counters: [OfferCounter!]!`, `created`, `modified`, `expiresAt`.
+- **OfferCounter:** `id`, `party: OfferParty!`, `amount`, `currency`, `message`, `createdByUserId`, `created`.
+
 ## Selected types
 
 - **Product / ProductVariant** — admin variants additionally expose `stockOnHand`,
-  `trackInventory`, `enabled`, `taxCategoryId`, plus `customFields { bastaItemId }`.
+  `trackInventory`, `enabled`, `taxCategoryId`, `weightGrams`, and a top-level `bastaItemId`
+  (the auction-item link — a first-class field here, **not** under `customFields`), plus
+  shipping-class fields: `shippingClassId`, `shippingClass`, and `effectiveShippingClass`
+  (the variant's own class if set, otherwise the parent product's).
+- **ShippingClass** — `id`, `code` (unique per account), `name`, `createdAt`, `updatedAt`.
+  Assigned to products/variants and carried by shipping methods (`allowedShippingClassIds`).
 - **Order** — same shape as the shop `Order` plus `userId`, `notes: [OrderNote!]!`, and
   `customer.externalUserId` (JWT external user id for dashboard routing). Filterable via
   `OrderListOptions`.
@@ -281,6 +338,9 @@ mutation AddVariant($a: String!) {
 - **AdjustmentType:** `PROMOTION`, `DISTRIBUTED_ORDER_PROMOTION`, `OTHER`
 - **OrderType:** `Regular`, `Seller`, `Aggregate`
 - **MarketplaceImageType:** `PRODUCT`, `PRODUCT_VARIANT`, `COLLECTION`
+- **OfferStatus:** `OFFER_STATUS_PENDING`, `OFFER_STATUS_ACCEPTED`, `OFFER_STATUS_REJECTED`,
+  `OFFER_STATUS_CANCELED`, `OFFER_STATUS_COUNTERED`, `OFFER_STATUS_EXPIRED`
+- **OfferParty:** `BUYER`, `SELLER` · **OfferActor:** `OFFER_ACTOR_ADMIN`, `OFFER_ACTOR_CONSIGNOR`
 - **CurrencyCode:** full ISO 4217 set · **Scalars:** `JSON`, `DateTime` (RFC 3339)
 
 ## Architecture note

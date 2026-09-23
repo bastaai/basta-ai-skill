@@ -533,3 +533,97 @@ mutation {
   single-line or rich text.
 
 > See `references/watchlist_highlights_metafields.md` for the full reference across both APIs.
+
+## Offers & Buy-Now (seller side)
+
+The operator side of the buyer make-an-offer flow (buyers negotiate via the Client API's
+`makeOffer`/`counterOffer`/`acceptCounter`/`withdrawOffer`). All amounts are minor currency
+units with an ISO-4217 `currency` string.
+
+**Configure & decide offers:**
+- `setItemOfferConfig(input: SetItemOfferConfigInput!): ItemOfferConfig!` (`WRITE_ITEM`) —
+  enable/disable offers on an item and set an **auto-accept threshold** and per-offer TTL.
+  `input`: `itemId`, `enabled`, `autoAcceptAmount`/`autoAcceptCurrency` (+ `clearAutoAccept`),
+  `offerTtlSeconds` (+ `clearOfferTtl`).
+- `acceptOffer(offerId): Offer!` / `rejectOffer(offerId): Offer!` (`WRITE_ITEM`) — decide a
+  pending offer as admin.
+- `counterOffer(offerId, amount, currency, message): Offer!` — counter as the seller.
+- Reads: `offer(offerId): Offer!`, `itemOffers(itemId, first, after, status): OffersConnection!`,
+  `offers(filter: OffersFilter, …): OffersConnection!` (account-wide), `itemOfferConfig(itemId): ItemOfferConfig` (`READ_ITEM`).
+
+The Management `Offer` adds seller-side fields over the client one: `buyerUserId`/`buyer:
+UserInfo`, `item: ItemBanner`, `decidedByUserId`, `decidedByActor: OfferActor`
+(`OFFER_ACTOR_ADMIN` / `OFFER_ACTOR_CONSIGNOR`).
+
+**Buy-Now:**
+- `setItemBuyNowConfig(input: SetItemBuyNowConfigInput!): SaleItem!` (`WRITE_SALE`) —
+  enable/disable a fixed buy-now `price`/`currency` on a sale item.
+- `buyItem(input: BuyItemInput!): SaleItem!` (`WRITE_SALE`) — **terminal**: buy an item
+  outright on behalf of a buyer (`buyerUserId`, `expectedPrice`, `currency`). Closes the item,
+  marks it sold, and creates a payments order. The acting admin is never the buyer.
+
+## Dutch Auctions (descending-clock) & SaleV2
+
+Operator side of Basta's Dutch (descending-clock) auction format. Sales are polymorphic via
+`SaleV2` (English `Sale` or `DutchSale`). Buyers accept the clock via the Client API's
+`placeDutchBid`.
+
+- `createDutchSale(input: CreateDutchSaleInput!): DutchSale!` / `updateDutchSale(input: UpdateDutchSaleInput!): DutchSale!`
+- `createDutchItemForSale(input: CreateDutchItemForSaleInput!): DutchSaleItem!` /
+  `updateDutchSaleItem(input: UpdateDutchSaleItemInput!): DutchSaleItem!` — a Dutch lot carries
+  `availableUnits` and a price-drop `schedule` (`startingAmount` + dated `drops`).
+- `saleV2(id: ID!, saleIdType: SaleIDType): SaleV2!` / `salesV2(accountId, first, after, filter, …): SaleV2Connection!` —
+  read sales of any format; use inline fragments (`... on DutchSale`).
+
+See the Client API reference for the full Dutch lot/price/bid shapes.
+
+## Consignments
+
+A **consignment** groups items a consignor entrusts to the auction house, with its own fee
+rules, consignor(s), and staff. All mutations require `WRITE_CONSIGNMENT` (reads `READ_CONSIGNMENT`).
+
+**Records:**
+- `createConsignment(input: CreateConsignmentInput!): Consignment!` — `input`: `name`,
+  `description`, `externalId` (unique per account), `feeRules: [ConsignmentFeeRuleInput!]!`,
+  `consignorUserIds: [String!]` (first = main consignor; Basta `User.id`s), and
+  `consignmentStaffUserIds: [String!]` (first = lead; Ory Kratos identity ids, same space as
+  `DashboardMember.userId`). *(`consignorUserId`/`idType` are deprecated single-consignor fields.)*
+- `updateConsignment(input: UpdateConsignmentInput!): Consignment!` — **full replace**: a field
+  left out is cleared.
+- `deleteConsignment(consignmentId): Consignment!` — rejected while items are still linked.
+
+**Item ↔ consignment:**
+- `setItemConsignment(input: { itemId, consignmentId, reassign })` — `reassign: true` moves an
+  already-linked item; default rejects it.
+- `clearItemConsignment(itemId): Item!` — no-op if unlinked.
+
+**Consignors & staff:**
+- `addConsignors` / `removeConsignors` / `setMainConsignor` (auto-adds the user if needed).
+- `addConsignmentStaff` / `removeConsignmentStaff` (removing the lead promotes a remaining
+  member) / `setConsignmentStaffLead`.
+
+**Reads:** `consignment(consignmentId)`, `consignmentByShortId(shortId)` (`shortId` format
+`CN<YY><M><D><SUFFIX>`, unique per account), `consignments(…): ConsignmentsConnection!`,
+`consignorItems(consignorUserId, …): ItemsConnection!`, plus the consignor social graph
+(`consignorFollowers`, `userFollowing`, `consignorFollowerCount`).
+
+- **Consignment:** `id`, `shortId`, `accountId`, `name`, `description`, `externalId`,
+  `consignors: [Consignor!]!` (`{ userId, isMain, user }`), `staff: [ConsignmentStaff!]!`
+  (`{ userId, isLead, name, email }`), `feeRules: [ConsignmentFeeRule!]!`, `charges(…)`,
+  `created`/`modified`/`createdByUserId`/`modifiedByUserId`.
+
+## Live-Sale Clerking (LIVE sale type)
+
+Auctioneer/clerk operations for a running **LIVE** sale. All require `WRITE_SALE` and a valid
+auctioneer session cookie; they act on the current lot.
+
+- `passLiveItem(input: PassLiveItemInput!): SaleItem!` — pass the lot (to processing; raises
+  the reserve if it was met). `input`: `saleId`, `itemId`, `transitionToUpcomingLot`.
+- `sellLiveItem(input: SellLiveItemInput!): SaleItem!` — sell the lot (lowers the reserve if
+  it was unmet).
+- `sellLiveItemToBid(input: SellLiveItemToBidInput!): SellLiveItemToBidResult!` — sell to a
+  **pinned bid id** (item must be in `ITEM_LIVE`). Returns a typed error union
+  (`SellLiveItemToBidError { errorCode: BID_NOT_HIGHEST }`) when the pinned bid is no longer
+  the leader, so the UI can recover without polling.
+- `addLiveStreamToSale(input): LiveStream!` (idempotent) / `deleteLiveStreamFromSale(input): Boolean!`
+  — attach/detach a live video stream.

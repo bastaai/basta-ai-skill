@@ -70,6 +70,7 @@ curl -X POST https://marketplace.api.basta.app/shop/graphql \
 | `facets` | `options: FacetListOptions` | `FacetList!` | |
 | `facet` | `id: ID!` | `Facet` | |
 | `search` | `input: SearchInput!` | `SearchResult!` | Full-text + facet/collection/price filters; returns items plus facet/collection aggregations for filter UIs. |
+| `searchAsync` | `type: SearchAsyncType!, query: String!, first: Int = 20, page: Int = 1, queryBy: [String!], orderBy: String, filterBy: String` | `SearchAsyncResultConnection!` | Search-index (Typesense) backed variant search. **Eventually consistent** — the index lags catalog writes; nodes are hydrated with live `ProductVariant` data in index-ranked order. Page-based pagination + facet counts/stats. |
 
 ```graphql
 query Search {
@@ -97,6 +98,31 @@ query Search {
     }
     facetValues { facetValue { id name } count }
     collections { collection { id name slug } count }
+  }
+}
+```
+
+**`search` vs. `searchAsync`.** `search` queries live catalog data synchronously (strongly
+consistent, offset pagination). `searchAsync` queries the Typesense search index — faster
+and richer (typo tolerance, `filterBy`/`orderBy` expressions, per-field facet counts and
+numeric stats) but **eventually consistent**, so a just-created/edited variant may briefly
+be absent or stale. Nodes come back hydrated with live `ProductVariant` data in the index's
+ranked order. Currently only `PRODUCT_VARIANT` is searchable.
+
+```graphql
+query AsyncSearch {
+  searchAsync(
+    type: PRODUCT_VARIANT
+    query: "leather bag"
+    first: 20
+    page: 1
+    filterBy: "price:<50000"          # Typesense filter expression
+    orderBy: "price:asc"
+  ) {
+    resultCount
+    edges { node { ... on ProductVariant { id name sku price inStock } } }
+    pageInfo { page pageSize totalPages hasNextPage totalRecords }
+    facets { fieldName counts { value count } stats { min max avg } }
   }
 }
 ```
@@ -153,6 +179,65 @@ query Search {
 | `createCustomerAddress` | `(input: CreateAddressInput!): Address!` | Persists in user-service. |
 | `updateCustomerAddress` | `(input: UpdateAddressInput!): Address!` | |
 | `deleteCustomerAddress` | `(id: ID!): DeletionResponse!` | Existing orders that referenced it are unaffected (snapshot semantics). |
+
+## Offers / Negotiation (make-an-offer)
+
+Buyers can negotiate a price on an item connected to a Basta auction lot (matched by
+`itemId`, the same link exposed via `ProductVariant.customFields.bastaItemId`). An offer is
+a turn-based negotiation: the buyer opens with `makeOffer`, the seller may accept, reject,
+or counter (seller actions happen outside the Shop API — see the Admin reference), and the
+buyer responds with `counterOffer` / `acceptCounter` / `declineOffer`. `awaitingParty` says
+whose turn it is; it is null once the offer is terminal. **All offer operations require
+authentication** — `buyerUserId` is derived from the session and guests get empty reads.
+
+### Queries
+
+| Query | Signature | Notes |
+|-------|-----------|-------|
+| `myOffers` | `(first: Int, after: String, status: OfferStatus): OffersConnection!` | The buyer's own offers, newest activity first. Cursor-paginated. Filter by `status`. |
+| `offer` | `(id: ID!): Offer` | A single offer (with counter history) owned by the caller. Null otherwise. |
+| `ProductVariant.offers` | `(first: Int, after: String, status: OfferStatus): OffersConnection!` | The buyer's own offers on that variant's connected Basta item. Empty for guests or variants with no linked item. |
+
+### Mutations
+
+| Mutation | Signature | Notes |
+|----------|-----------|-------|
+| `makeOffer` | `(input: MakeOfferInput!): Offer!` | Open a new offer on an item. `input`: `itemId: String!`, `amount: Int!` (minor units), `currency: String!`, `message: String`. |
+| `counterOffer` | `(input: CounterOfferInput!): Offer!` | Counter the seller's outstanding counter (only when it's the buyer's turn). `input`: `offerId: ID!`, `amount: Int!`, `currency: String!`, `message: String`. |
+| `acceptCounter` | `(offerId: ID!): Offer!` | Accept the seller's counter, closing the negotiation at that amount. |
+| `declineOffer` | `(offerId: ID!): Offer!` | Withdraw (end) one of the buyer's live offers. |
+
+```graphql
+mutation Open {
+  makeOffer(input: { itemId: "item_123", amount: 45000, currency: "USD", message: "Would you take this?" }) {
+    id status awaitingParty amount currency expiresAt
+  }
+}
+
+query Mine {
+  myOffers(first: 20, status: OFFER_STATUS_COUNTERED) {
+    edges { node {
+      id itemId amount currency status awaitingParty expiresAt
+      counters { party amount currency message created }
+    } }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+> **Note on money:** offers use minor-unit `Int` amounts with `currency: String!` (a plain
+> ISO code string — **not** the `CurrencyCode` enum used elsewhere in the Shop API). Offers
+> are the only cursor/Relay-paginated connection in the Shop API (everything else uses
+> `skip`/`take` + `totalItems`). `expiresAt` (RFC 3339, nullable) drives auto-expiry to
+> `OFFER_STATUS_EXPIRED`.
+
+### Offer types
+
+- **Offer:** `id`, `itemId`, `amount` (original, minor units — current terms are the latest
+  `counters` entry), `currency`, `status: OfferStatus!`, `message`, `awaitingParty: OfferParty`,
+  `counters: [OfferCounter!]!` (oldest first), `created`, `modified`, `expiresAt`.
+- **OfferCounter:** `id`, `party: OfferParty!`, `amount`, `currency`, `message`, `created`.
+- **OffersConnection:** `edges { cursor node: Offer! }`, `pageInfo { startCursor endCursor hasNextPage hasPreviousPage }`.
 
 ## Typical storefront flow
 
@@ -230,6 +315,10 @@ a decimal `0.24` for the same field), `discounts: [Discount!]!`,
 - **CurrencyCode:** full ISO 4217 set (USD, EUR, GBP, ISK, …); the subset available per
   storefront is configured per account.
 - **LanguageCode:** IETF/CLDR language tags (en, en_US, is, de, …).
+- **OfferStatus:** `OFFER_STATUS_PENDING`, `OFFER_STATUS_ACCEPTED`, `OFFER_STATUS_REJECTED`,
+  `OFFER_STATUS_CANCELED`, `OFFER_STATUS_COUNTERED` (a counter is on the table), `OFFER_STATUS_EXPIRED`.
+- **OfferParty:** `BUYER`, `SELLER` (used by `awaitingParty` and each `OfferCounter.party`).
+- **SearchAsyncType:** `PRODUCT_VARIANT` (the only node type `searchAsync` currently supports).
 
 > Order state strings are plain `String` in the schema (e.g. `AddingItems`,
 > `ArrangingPayment`, `PaymentSettled`, `Shipped`, `Delivered`, `Cancelled`). See the

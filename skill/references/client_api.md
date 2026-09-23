@@ -335,6 +335,117 @@ on the Client API results are wrapped in `MetafieldsConnection` (`edges`, `nodes
 
 > See `references/watchlist_highlights_metafields.md` for the full cross-API reference.
 
+## Offers / Make-an-offer (negotiation)
+
+Buyers can privately negotiate a price on an item (a "make-an-offer" flow, distinct from
+bidding). This is the **auction** offer surface — separate from the Marketplace Shop API's
+offers (which share operation names but live on a different endpoint). All offer mutations
+require an authenticated bidder; the buyer identity is taken from the session, never from
+input. Amounts are minor currency units with a plain ISO-4217 `currency: String!`.
+
+| Operation | Signature | Notes |
+|-----------|-----------|-------|
+| `makeOffer` | `(input: MakeOfferInput!): Offer!` | Open an offer. `input`: `itemId: String!`, `saleId: String!` (scopes it to the sale's bid feed), `amount: Int!`, `currency: String!`, `message: String`. |
+| `counterOffer` | `(input: CounterOfferInput!): Offer!` | Counter an outstanding offer as the buyer. `input`: `offerId: ID!`, `amount: Int!`, `currency: String!`, `message: String`. |
+| `acceptCounter` | `(offerId: ID!): Offer!` | Accept the seller's outstanding counter. |
+| `withdrawOffer` | `(offerId: ID!): Offer!` | Withdraw an offer the buyer previously made. |
+| `offer` | `(id: ID!): Offer` (query) | A single offer owned by the caller; null otherwise. |
+
+The seller side (accept/reject/counter, auto-accept thresholds, buy-now) is driven from the
+Management API — see `references/management_api.md`.
+
+```graphql
+mutation Open {
+  makeOffer(input: { saleId: "sale_1", itemId: "item_1", amount: 45000, currency: "USD", message: "Would you take this?" }) {
+    id status amount currency awaitingParty expiresAt
+    counters { party amount currency message created }
+  }
+}
+```
+
+- **Offer:** `id`, `itemId`, `amount` (original — current terms are the latest `counters`
+  entry), `currency`, `status: OfferStatus!`, `message`, `awaitingParty: OfferParty` (whose
+  turn; null when terminal), `counters: [OfferCounter!]!` (oldest first), `created`,
+  `modified`, `expiresAt` (RFC3339, nullable — drives auto-expiry).
+- **OfferStatus:** `OFFER_STATUS_PENDING`, `OFFER_STATUS_ACCEPTED`, `OFFER_STATUS_REJECTED`,
+  `OFFER_STATUS_CANCELED`, `OFFER_STATUS_COUNTERED`, `OFFER_STATUS_EXPIRED`.
+- **OfferParty:** `BUYER`, `SELLER`.
+
+## Dutch Auctions (descending-clock) & SaleV2
+
+Basta supports **Dutch (descending-clock) auctions** alongside classic English (ascending)
+auctions. In a Dutch sale each lot starts at a high price that drops on a schedule until a
+buyer accepts the current clock price. `SaleV2` is a polymorphic API that returns either an
+English `Sale` or a `DutchSale` — use inline fragments to read format-specific fields.
+
+| Operation | Signature | Notes |
+|-----------|-----------|-------|
+| `saleV2` | `(id: String!, idType: IdType): SaleV2!` | A sale of any format. |
+| `salesV2` | `(accountId: String!, first: Int = 20, after: String, filter: SaleFilter, idType: IdType): SaleV2Connection!` | List sales of any format. |
+| `placeDutchBid` | `(saleId: String!, itemId: String!, quantity: Int!, amount: Int!): DutchBidPlaced!` | Accept the current clock price for `quantity` units. `amount` **must equal the current clock price exactly** — a stale price returns `PRICE_MISMATCH`; re-read and retry. |
+| `saleActivityV2` | `(saleId: ID!, itemIdFilter: ItemIdsFilter): SaleActivityV2` (subscription) | Real-time updates across `Sale`/`Item`/`DutchSale`/`DutchSaleItem`. |
+
+```graphql
+query DutchLot {
+  saleV2(id: "sale_1") {
+    saleFormat
+    ... on DutchSale {
+      title
+      items { edges { node {
+        id status availableUnits unitsRemaining
+        price { current nextDrop { price at } }
+        schedule { startingAmount drops { at price } }
+      } } }
+    }
+  }
+}
+
+mutation Accept {
+  placeDutchBid(saleId: "sale_1", itemId: "item_1", quantity: 2, amount: 12000) {
+    __typename
+    ... on DutchBidPlacedSuccess { id amount quantityRequested quantityAllocated placedAt }
+    ... on DutchBidPlacedError { errorCode }
+  }
+}
+```
+
+- **SaleFormat:** `ENGLISH` (ascending), `DUTCH` (descending-clock).
+- **SaleV2 (interface):** `id`, `accountId`, `title`, `description`, `currency`, `status`,
+  `dates`, `saleFormat`. Implemented by `Sale` and `DutchSale`.
+- **DutchSaleItem:** `status: DutchItemStatus!` (`NOT_OPEN`/`OPEN`/`CLOSED`), `availableUnits`,
+  `unitsRemaining`, `totalBids`, `openTime`, `endTime`, `price: DutchPrice!`
+  (`current`, `nextDrop { price at }`), `schedule: DutchSchedule` (`startingAmount`, `drops`),
+  `bids: DutchBidConnection!` (`DutchBid { id, amount, placedAt, mine }`).
+- **DutchBidPlaced (union):** `DutchBidPlacedSuccess` (with `quantityAllocated ≤ quantityRequested`
+  under partial-fill) or `DutchBidPlacedError { errorCode: DutchBidErrorCode }`.
+- **DutchBidErrorCode:** `NOT_OPEN`, `ENDED`, `SOLD_OUT`, `BIDDER_LIMIT_REACHED`, `CLOSED`, `PRICE_MISMATCH`.
+
+> Always branch on `__typename` for `placeDutchBid`, and on a `PRICE_MISMATCH` re-read
+> `price.current` before retrying.
+
+## Notification Preferences
+
+`setMyNotificationPreferences(preferences: [UserNotificationPreferenceInput!]!): [UserNotificationPreference!]!`
+(requires `ACCESS_PRIVATE`) sets the authenticated user's opt-in per event and channel.
+
+- **UserNotificationPreferenceInput / UserNotificationPreference:** `notification: NotificationEvent!`,
+  `channel: NotificationChannel!`, `optedIn: Boolean!`.
+- **NotificationChannel:** `EMAIL`, `SMS`.
+- **NotificationEvent:** `BID_CONFIRMATION`, `BID_CONFIRMATION_OUTBID`, `OUTBID`,
+  `AUTO_BID_PLACED`, `SALE_REGISTRATION_PENDING`, `SALE_REGISTRATION_ACCEPTED`,
+  `SALE_REGISTRATION_REJECTED`, `SALE_ITEM_REGISTRATION_PHONE`, `SALE_ITEM_WON`,
+  `CONSIGNOR_SALE_ITEM_OPENED`, `SALE_ABOUT_TO_CLOSE`, `BUY_NOW_PRICE_REDUCED`,
+  `OFFER_PLACED_CONFIRMATION`, `OFFER_COUNTERED`, `OFFER_REJECTED`, `DIRECT_SELL_WON`.
+
+```graphql
+mutation {
+  setMyNotificationPreferences(preferences: [
+    { notification: OUTBID, channel: EMAIL, optedIn: true },
+    { notification: OUTBID, channel: SMS, optedIn: false }
+  ]) { notification channel optedIn }
+}
+```
+
 ## Best Practices
 
 **Bidding:**
