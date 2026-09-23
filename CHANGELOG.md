@@ -50,6 +50,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 - `add_item()` method in Python client (use `create_item_for_sale()` for clarity)
 
+## [1.6.0] - 2026-09-23
+
+### Added
+- Documentation for **auction make-an-offer / negotiation** — Client API buyer mutations `makeOffer`, `counterOffer`, `acceptCounter`, `withdrawOffer` and `offer` query; Management API seller side `setItemOfferConfig` (auto-accept threshold + TTL), `acceptOffer`, `rejectOffer`, `counterOffer`, reads `offer`/`itemOffers`/`offers`; types `Offer`/`OfferCounter`/`ItemOfferConfig`, enums `OfferStatus`/`OfferParty`/`OfferActor` (distinct from the Marketplace Shop API offers)
+- Documentation for **Buy-Now** — `setItemBuyNowConfig` and terminal `buyItem` (Management API)
+- Documentation for **Dutch (descending-clock) auctions & `SaleV2`** — Client API `placeDutchBid` (with `PRICE_MISMATCH` retry semantics), `saleV2`/`salesV2`, `saleActivityV2`, and the `DutchSale`/`DutchSaleItem`/`DutchPrice`/`DutchSchedule`/`DutchBidPlaced` cluster + `SaleFormat`/`DutchItemStatus`/`DutchBidErrorCode` enums; Management API `createDutchSale`/`updateDutchSale`/`createDutchItemForSale`/`updateDutchSaleItem`
+- Documentation for **consignments** (Management API) — `createConsignment`/`updateConsignment`/`deleteConsignment`, `setItemConsignment`/`clearItemConsignment`, multi-consignor + staff ops (`addConsignors`, `setMainConsignor`, `addConsignmentStaff`, `setConsignmentStaffLead`, …), reads `consignment`/`consignmentByShortId`/`consignments`
+- Documentation for **live-sale clerking** (Management API, `LIVE` sales) — `passLiveItem`, `sellLiveItem`, `sellLiveItemToBid` (typed `BID_NOT_HIGHEST` error), `addLiveStreamToSale`/`deleteLiveStreamFromSale`
+- Documentation for **notification preferences** (Client API) — `setMyNotificationPreferences`, `NotificationEvent`/`NotificationChannel`
+- New glossary section **Auction Formats, Offers & Consignments**; sections added to `client_api.md`, `management_api.md`, and `SKILL.md`
+
+## [1.5.0] - 2026-09-22
+
+### Added
+- Documentation for **Marketplace offers / negotiation** (make-an-offer) — buyer Shop API mutations `makeOffer`, `counterOffer`, `acceptCounter`, `declineOffer`; buyer queries `myOffers`, `offer(id)`, and `ProductVariant.offers`; admin read-only `ProductVariant.offers` (seller view with `buyerUserId`/`decidedByUserId`/`decidedByActor`); types `Offer`, `OfferCounter`, `OffersConnection`/`OffersEdge`/`OffersPageInfo`, inputs `MakeOfferInput`/`CounterOfferInput`, enums `OfferStatus`, `OfferParty`, `OfferActor`
+- Documentation for **`searchAsync`** — Typesense-index-backed variant search on the Shop API (eventually consistent; `filterBy`/`orderBy`, page-based pagination, facet counts/stats), `SearchAsyncType` enum, and the `search` vs. `searchAsync` trade-off
+- Documentation for **shipping classes** on the Admin API — `ShippingClass`/`ShippingClassList`, queries `shippingClasses`/`shippingClass`, mutations `createShippingClass`/`updateShippingClass`/`deleteShippingClass`, variant `shippingClassId`/`shippingClass`/`effectiveShippingClass`, and a shipping method's `allowedShippingClassIds`
+- Documentation for **`createProductVariantFromItem`** — mint a Marketplace variant from a Basta auction item (name/price/currency sourced from the item)
+
+### Changed
+- Corrected the Admin API note that `bastaItemId` lives under `customFields` — it is a top-level `ProductVariant` field on the Admin API (the Shop API keeps it under `customFields.bastaItemId`)
+- Offer/searchAsync/shipping-class sections added to `marketplace_shop_api.md`, `marketplace_admin_api.md`, and `SKILL.md`
+
 ## [1.4.0] - 2026-06-03
 
 ### Added
